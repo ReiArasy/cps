@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+*.log
+.env.local
+.env.*.local
+.vercel/
+.taste-skill/
+.impeccable/
+.design-references/
+*.tsbuildinfo
