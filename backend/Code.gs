@@ -392,7 +392,16 @@ function repairFormulas() {
   var shifts = ss.getSheetByName('Rekap_Shift');
   if (!report || !shifts) throw new Error('Jalankan setupDatabase() terlebih dahulu.');
   var last = Math.max(2, report.getLastRow());
-  var sep = formulaSeparator_(ss);
+  var probe = report.getRange('C2');
+  var sep = '';
+  [';', ','].some(function(candidate) {
+    probe.setFormula('=IF(1=1'+candidate+'1'+candidate+'0)');
+    SpreadsheetApp.flush();
+    if (probe.getValue() === 1) { sep = candidate; return true; }
+    return false;
+  });
+  if (!sep) throw new Error('Tidak bisa menentukan pemisah rumus; locale=' + ss.getSpreadsheetLocale() + '.');
+  PropertiesService.getScriptProperties().setProperty('FORMULA_SEPARATOR', sep);
   var formulas = [];
   for (var r = 2; r <= last; r++) formulas.push(reportFormulas_(r, sep));
   report.getRange(2, 3, formulas.length, 18).setFormulas(formulas);
@@ -403,12 +412,15 @@ function repairFormulas() {
   for (var row = 2; row <= shifts.getLastRow(); row++) setShiftFormulas_(shifts, row);
   SpreadsheetApp.flush();
   if (report.getRange('C2').getDisplayValue() === '#ERROR!') {
-    throw new Error('Rumus masih gagal diparse. Periksa File > Setelan > Lokalitas dan kirim formula C2.');
+    throw new Error('Rumus C2 masih gagal diparse. locale=' + ss.getSpreadsheetLocale() +
+      ', separator=' + sep + ', formula=' + report.getRange('C2').getFormula());
   }
   return 'Rumus Laporan_Admin dan Rekap_Shift diperbarui untuk locale ' + ss.getSpreadsheetLocale() + '.';
 }
 
 function formulaSeparator_(ss) {
+  var saved = PropertiesService.getScriptProperties().getProperty('FORMULA_SEPARATOR');
+  if (saved === ';' || saved === ',') return saved;
   return /^id(?:_|$)/i.test(String(ss.getSpreadsheetLocale())) ? ';' : ',';
 }
 
