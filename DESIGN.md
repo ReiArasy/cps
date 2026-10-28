@@ -8,21 +8,22 @@ Taste Skill menghasilkan gaya `true-black-flat` (seed `1180494385`) untuk layar 
 
 ## Visual idea
 
-Warna berangkat dari booth cuanki malam: arang hangat, putih kuah, dan aksen cabai. Identitas hadir melalui palet, huruf, ritme angka dan satu gerak khas: **strip rekonsiliasi** yang menyandingkan cup fisik dengan cup POS dan kas laci dengan kas sistem. Layar tetap memakai tab, tombol, input, daftar dan tabel web yang lazim.
+Warna berangkat dari booth Cuanki Cep Bewok Express: dasar arang cabai panggang hangat, putih kuah kaldu, dan aksen merah sambal khas logo Cuanki. Identitas hadir melalui logo bundar resmi, palet merah-arang, huruf, ritme angka dan satu gerak khas: **strip rekonsiliasi** yang menyandingkan cup fisik dengan cup POS dan kas laci dengan kas sistem. Layar tetap memakai tab, tombol, input, daftar dan tabel web yang lazim.
 
 ## Tokens
 
 | Role | Token | Value | Usage |
 | --- | --- | --- | --- |
-| Ground | `--bg` | `#151714` | Latar malam. |
-| Raised surface | `--surface` | `#222620` | Panel kerja satu tingkat lebih terang. |
-| Dividers | `--line` | `#464C42` | Batas tipis dan fokus struktur. |
-| Main text | `--ink` | `#F7F4E9` | Judul, angka, aksi. |
-| Secondary text | `--muted` | `#C8CEBF` | Label dan bantuan yang tetap terbaca. |
-| Primary action | `--action` | `#F2B84B` | Bayar dan aksi utama; teks `#171B15`. |
+| Ground | `--bg` | `#161010` | Latar malam arang cabai hangat. |
+| Raised surface | `--surface` | `#231919` | Panel kerja satu tingkat lebih terang. |
+| Dividers | `--line` | `#4D3737` | Batas tipis dan fokus struktur. |
+| Main text | `--ink` | `#FBF5F3` | Judul, angka, aksi. |
+| Secondary text | `--muted` | `#D4C2BE` | Label dan bantuan yang tetap terbaca. |
+| Primary action | `--action` | `#D91824` | Bayar dan aksi utama merah Cuanki; teks `#FFFFFF`. |
+| Accent text / focus | `--action-text` | `#FF7D78` | Tautan aksi sekunder, tanda wajib, fokus, dan indikator aktif. |
 | Positive | `--ok` | `#8FD0A2` | Sinkron/sesuai, selalu dengan teks status. |
-| Warning | `--warn` | `#F1C66D` | Antrean atau peringatan. |
-| Error | `--error` | `#FF958A` | Selisih/gagal, selalu dengan teks dan angka. |
+| Warning | `--warn` | `#F5C469` | Antrean atau peringatan. |
+| Error | `--error` | `#FF948A` | Selisih/gagal, selalu dengan teks dan angka. |
 
 Tidak memakai gradasi ungu atau biru neon, glow, kartu metrik berikon, atau warna dekoratif pada setiap panel. Warna dipakai untuk aksi, data penting, dan status. Permukaan datar dengan garis 1 px; bayangan hanya bila perlu membedakan lapisan modal.
 

@@ -10,13 +10,13 @@ export const metadata: Metadata = {
   description: "Kasir dan rekonsiliasi shift Cuanki multi-cabang",
   applicationName: "Cuanki POS",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Cuanki POS" },
-  icons: { apple: "/icon-192.png" },
+  icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#151714",
+  themeColor: "#161010",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

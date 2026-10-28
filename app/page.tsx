@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Banknote, Check, CircleAlert, ClipboardCheck, CloudOff,
-  CloudUpload, LogOut, Minus, Plus, QrCode, RefreshCw, Soup, Trash2, Wifi,
+  CloudUpload, LogOut, Minus, Plus, QrCode, RefreshCw, Trash2, Wifi,
   WifiOff, X,
 } from "lucide-react";
 import {
@@ -51,10 +51,19 @@ function NumberField({ id, label, value, onChange, currency = false, required = 
   );
 }
 
+function LogoBadge({ className, size = 44 }: { className: string; size?: number }) {
+  return (
+    <span className={className} aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-cuanki.png" alt="" width={size} height={size} className="cuanki-logo" decoding="async" />
+    </span>
+  );
+}
+
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "brand-compact" : ""}`}>
-      <span className="brand-mark" aria-hidden="true"><Soup size={23} strokeWidth={2} /></span>
+      <LogoBadge className="brand-mark" size={compact ? 38 : 46} />
       <span className="brand-name">cuanki<span>POS</span></span>
     </div>
   );
@@ -443,7 +452,7 @@ export default function Home() {
           <form className="login-panel" onSubmit={handleLogin}>
             <div className="login-mobile-brand"><Brand compact /></div>
             <div className="login-heading">
-              <span className="login-symbol" aria-hidden="true"><Soup size={24} /></span>
+              <LogoBadge className="login-symbol" size={52} />
               <h1>Mulai sesi kasir</h1>
               <p>Pilih cabang dan masuk sebelum menerima pesanan.</p>
             </div>
@@ -476,7 +485,7 @@ export default function Home() {
   }
 
   if (!session.shiftId) {
-    return <main className="login-shell"><div className="login-intro"><Brand /><div className="login-story"><h2>Siapkan shift.<br />Mulai jualan.</h2><p>Catat modal dan cup sekali sebelum menerima pesanan.</p></div><div className="login-foot">{session.branchName} · {session.cashierName}</div></div><div className="login-panel-wrap"><form className="login-panel" onSubmit={handleOpen}><div className="login-mobile-brand"><Brand compact /></div><div className="login-heading"><span className="login-symbol"><Soup size={24} /></span><h1>Buka shift</h1><p>{displayDate(date)} · {session.branchName}</p></div><NumberField id="opening-cash" label="Modal awal kas" value={draft.modalAwal} onChange={(value) => updateDraft({ modalAwal: value })} currency required /><div style={{ height: 20 }} /><NumberField id="opening-cups" label="Cup Bawa" value={draft.cupBawa} onChange={(value) => updateDraft({ cupBawa: value })} required hint="Minimal 1 cup. Stok dibawa sekali saat buka shift." />{openError && <div className="message error-message" role="alert"><CircleAlert size={18} /><span>{openError}</span></div>}<button className="primary-button login-submit" type="submit" disabled={openBusy || !online || !draft.cupBawa || draft.modalAwal === null}><span>{openBusy ? "Membuka shift…" : "Buka shift & mulai"}</span><ArrowRight size={19} /></button><p className="login-help">Buka shift perlu koneksi. Setelah terbuka, transaksi dapat antre saat offline.</p><button className="text-button" type="button" onClick={logout}>Keluar sesi</button></form></div></main>;
+    return <main className="login-shell"><div className="login-intro"><Brand /><div className="login-story"><h2>Siapkan shift.<br />Mulai jualan.</h2><p>Catat modal dan cup sekali sebelum menerima pesanan.</p></div><div className="login-foot">{session.branchName} · {session.cashierName}</div></div><div className="login-panel-wrap"><form className="login-panel" onSubmit={handleOpen}><div className="login-mobile-brand"><Brand compact /></div><div className="login-heading"><LogoBadge className="login-symbol" size={52} /><h1>Buka shift</h1><p>{displayDate(date)} · {session.branchName}</p></div><NumberField id="opening-cash" label="Modal awal kas" value={draft.modalAwal} onChange={(value) => updateDraft({ modalAwal: value })} currency required /><div style={{ height: 20 }} /><NumberField id="opening-cups" label="Cup Bawa" value={draft.cupBawa} onChange={(value) => updateDraft({ cupBawa: value })} required hint="Minimal 1 cup. Stok dibawa sekali saat buka shift." />{openError && <div className="message error-message" role="alert"><CircleAlert size={18} /><span>{openError}</span></div>}<button className="primary-button login-submit" type="submit" disabled={openBusy || !online || !draft.cupBawa || draft.modalAwal === null}><span>{openBusy ? "Membuka shift…" : "Buka shift & mulai"}</span><ArrowRight size={19} /></button><p className="login-help">Buka shift perlu koneksi. Setelah terbuka, transaksi dapat antre saat offline.</p><button className="text-button" type="button" onClick={logout}>Keluar sesi</button></form></div></main>;
   }
 
   return (
@@ -540,7 +549,7 @@ export default function Home() {
             </section>
 
             <aside className="checkout" aria-labelledby="checkout-title">
-              <div className="checkout-head"><div><h2 id="checkout-title">Pesanan saat ini</h2><p>{cartCups ? `${cartCups} cup dipilih` : "Belum ada menu dipilih"}</p></div><span className="checkout-icon"><Soup size={20} /></span></div>
+              <div className="checkout-head"><div><h2 id="checkout-title">Pesanan saat ini</h2><p>{cartCups ? `${cartCups} cup dipilih` : "Belum ada menu dipilih"}</p></div><LogoBadge className="checkout-icon" size={40} /></div>
               <div className="cart-lines">
                 {cartCups ? menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => {
                   const qty = cart[menu.sku_code] || 0;
