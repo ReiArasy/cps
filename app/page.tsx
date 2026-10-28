@@ -289,6 +289,10 @@ export default function Home() {
     try {
       const result = await gasPost({ action: "VALIDATE_PIN", branch_id: loginBranch, pin_code: loginPin });
       if (!result.valid) { setLoginError("PIN tidak sesuai. Periksa kembali lalu coba lagi."); return; }
+      if (!result.session_token || !result.expires_at) {
+        setLoginError("Apps Script masih versi lama. Perbarui Code.gs dan deployment Web App terlebih dahulu.");
+        return;
+      }
       const next: Session = { branchId: chosen.branch_id, branchName: chosen.branch_name, cashierName: name,
         token: String(result.session_token), expiresAt: Number(result.expires_at) };
       const activeShift = await gasPost({ action: "GET_SHIFT", branch_id: next.branchId,
