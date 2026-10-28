@@ -33,8 +33,8 @@ function setupDatabase() {
       ['CBG-001','Cabang Utama','0000',50000,26000,'MN-CKJ','Cuanki Creamy Keju',20000,18500,true]
     ]);
   }
+  repairFormulas();
   var report = ss.getSheetByName('Laporan_Admin');
-  if (report.getRange('C2').isBlank()) report.getRange(2, 3, 1, 18).setFormulas([reportFormulas_(2)]);
   report.getRange('C:R').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
   report.getRange('S:S').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
   ss.getSheetByName('Log_Transaksi').getRange('J:O').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
@@ -169,8 +169,28 @@ function closeShift_(p) {
 }
 
 function setShiftFormulas_(shifts,row) {
-  shifts.getRange(row,9).setFormula('=SUMIFS(Log_Transaksi!$I$2:$I,Log_Transaksi!$C$2:$C,B'+row+',Log_Transaksi!$D$2:$D,C'+row+')');
+  var sep = formulaSeparator_(shifts.getParent());
+  shifts.getRange(row,9).setFormula('=SUMIFS(Log_Transaksi!$I$2:$I'+sep+'Log_Transaksi!$C$2:$C'+sep+'B'+row+sep+'Log_Transaksi!$D$2:$D'+sep+'C'+row+')');
   shifts.getRange(row,10).setFormula('=H'+row+'-I'+row);
+}
+
+function repairFormulas() {
+  var ss = database_();
+  var report = ss.getSheetByName('Laporan_Admin');
+  var shifts = ss.getSheetByName('Rekap_Shift');
+  if (!report || !shifts) throw new Error('Jalankan setupDatabase() terlebih dahulu.');
+  var last = Math.max(2, report.getLastRow());
+  var sep = formulaSeparator_(ss);
+  var formulas = [];
+  for (var r = 2; r <= last; r++) formulas.push(reportFormulas_(r, sep));
+  report.getRange(2, 3, formulas.length, 18).setFormulas(formulas);
+  for (var row = 2; row <= shifts.getLastRow(); row++) setShiftFormulas_(shifts, row);
+  SpreadsheetApp.flush();
+  return 'Rumus Laporan_Admin dan Rekap_Shift diperbarui untuk locale ' + ss.getSpreadsheetLocale() + '.';
+}
+
+function formulaSeparator_(ss) {
+  return /^id(?:_|$)/i.test(String(ss.getSpreadsheetLocale())) ? ';' : ',';
 }
 
 function ensureReport_(ss,date,branchId) {
@@ -188,16 +208,17 @@ function ensureReport_(ss,date,branchId) {
 }
 
 function reportFormulas_(r) {
-  var guard = 'OR($A'+r+'="",$B'+r+'="")';
-  function sh(col) { return 'SUMIFS(Rekap_Shift!$'+col+'$2:$'+col+',Rekap_Shift!$B$2:$B,$A'+r+',Rekap_Shift!$C$2:$C,$B'+r+')'; }
-  function tx(col) { return 'SUMIFS(Log_Transaksi!$'+col+'$2:$'+col+',Log_Transaksi!$C$2:$C,$A'+r+',Log_Transaksi!$D$2:$D,$B'+r+')'; }
-  function f(body) { return '=IF('+guard+',"",'+body+')'; }
+  var sep = arguments.length > 1 ? arguments[1] : formulaSeparator_(database_());
+  var guard = 'OR($A'+r+'=""'+sep+'$B'+r+'="")';
+  function sh(col) { return 'SUMIFS(Rekap_Shift!$'+col+'$2:$'+col+sep+'Rekap_Shift!$B$2:$B'+sep+'$A'+r+sep+'Rekap_Shift!$C$2:$C'+sep+'$B'+r+')'; }
+  function tx(col) { return 'SUMIFS(Log_Transaksi!$'+col+'$2:$'+col+sep+'Log_Transaksi!$C$2:$C'+sep+'$A'+r+sep+'Log_Transaksi!$D$2:$D'+sep+'$B'+r+')'; }
+  function f(body) { return '=IF('+guard+sep+'""'+sep+body+')'; }
   return [f(sh('K')),f(sh('L')),f(sh('M')),f(tx('L')),f(tx('M')),f(tx('N')),
     f('SUM(F'+r+':H'+r+')'),f('I'+r+'+C'+r),f(sh('T')),
     f('J'+r+'-K'+r+'-(E'+r+'-D'+r+')-C'+r),f('L'+r+'+(E'+r+'-D'+r+')'),
     f(sh('V')),f('M'+r+'-N'+r),f(sh('W')),f(tx('O')),
     f('O'+r+'-P'+r+'-Q'+r),f(sh('U')+'-(C'+r+'+L'+r+')'),
-    f('IF(AND(S'+r+'=0,'+sh('J')+'=0),"SESUAI","SELISIH")')];
+    f('IF(AND(S'+r+'=0'+sep+sh('J')+'=0)'+sep+'"SESUAI"'+sep+'"SELISIH")')];
 }
 
 function configMap_() {
