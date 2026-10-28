@@ -6,6 +6,7 @@
  */
 var TABLES = {
   Master_Config: ['branch_id','branch_name','pin_code','daily_wage','daily_rent','sku_code','menu_name','sell_price','hpp_cost','is_active'],
+  Master_Kasir: ['username','cashier_name','pin_code','is_active'],
   Log_Transaksi: ['trx_id','timestamp','date','branch_id','cashier_name','qty_ayam','qty_kare','qty_creamy','total_cups','total_amount','payment_method','omset_ayam','omset_kare','omset_creamy','hpp_total','shift_id','items_json'],
   Rekap_Shift: ['shift_id','date','branch_id','cashier_name','cup_bawa','cup_sisa','cup_reject','cup_fisik','cup_sistem','selisih_cup','modal_awal','qris_awal','qris_akhir','op_lampu','op_kebersihan','op_penitipan','op_galon','op_lain_nominal','op_lain_detail','total_op','tunai_fisik_laci','daily_wage_snapshot','daily_rent_snapshot','status','opened_at'],
   Laporan_Admin: ['date','branch_id','modal_awal','qris_awal','qris_akhir','omset_ayam','omset_kare','omset_creamy','omset_penjualan','total_kas_kotor','total_operasional','tunai_penerimaan','total_penerimaan','gaji_karyawan','laba_kotor','sewa_lahan','total_hpp','laba_bersih','selisih_kas_laci','status_audit','omset_menu_lain'],
@@ -28,7 +29,9 @@ function setupDatabase() {
     sh.setFrozenRows(1);
   });
   var config = ss.getSheetByName('Master_Config');
+  var cashiers = ss.getSheetByName('Master_Kasir');
   config.getRange('C:C').setNumberFormat('@');
+  cashiers.getRange('C:C').setNumberFormat('@');
   ss.getSheetByName('Log_Transaksi').getRange('C:C').setNumberFormat('@');
   ss.getSheetByName('Rekap_Shift').getRange('B:B').setNumberFormat('@');
   ss.getSheetByName('Laporan_Admin').getRange('A:A').setNumberFormat('@');
@@ -37,6 +40,11 @@ function setupDatabase() {
       ['CBG-001','Cabang Utama','0000',50000,26000,'MN-AYM','Cuanki Ayam Bawang',18000,11500,true],
       ['CBG-001','Cabang Utama','0000',50000,26000,'MN-KRE','Cuanki Kare Pedas',18000,11500,true],
       ['CBG-001','Cabang Utama','0000',50000,26000,'MN-CKJ','Cuanki Creamy Keju',20000,18500,true]
+    ]);
+  }
+  if (cashiers.getLastRow() === 1) {
+    cashiers.getRange(2, 1, 1, 4).setValues([
+      ['kasir1','Kasir Utama','0000',true]
     ]);
   }
   var shifts = ss.getSheetByName('Rekap_Shift');
@@ -82,7 +90,7 @@ function doPost(e) {
     if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('Payload harus objek JSON.');
     lock.waitLock(30000);
     var result;
-    if (p.action === 'VALIDATE_PIN') {
+    if (p.action === 'VALIDATE_PIN' || p.action === 'LOGIN') {
       result = login_(p);
     } else if (p.action === 'OPEN_SHIFT') {
       result = openShift_(p);
@@ -103,9 +111,28 @@ function doPost(e) {
 }
 
 function login_(p) {
+  var cache = CacheService.getScriptCache();
+  if (p.username !== undefined && String(p.username).trim() !== '') {
+    var rawUser = safeText_(p.username, 'username', 80);
+    var userKey = rawUser.toLowerCase();
+    var rateKey = 'pin-fails:user:' + userKey;
+    var userFails = Number(cache.get(rateKey) || 0);
+    if (userFails >= 5) throw new Error('Terlalu banyak percobaan login. Tunggu 15 menit.');
+    var accounts = cashiersMap_();
+    var account = accounts.byUsername[userKey] || accounts.byName[userKey];
+    var validUser = !!account && String(p.pin_code) === account.pin && /^\d{4,8}$/.test(account.pin);
+    if (!validUser) {
+      cache.put(rateKey, String(userFails + 1), 900);
+      return {ok:true, valid:false};
+    }
+    cache.remove(rateKey);
+    var userExpiresAt = Date.now() + 16 * 60 * 60 * 1000;
+    var userData = Utilities.base64EncodeWebSafe(JSON.stringify({username:account.username, cashier_name:account.name, exp:userExpiresAt}));
+    var userSig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(userData, sessionSecret_()));
+    return {ok:true, valid:true, username:account.username, cashier_name:account.name, session_token:userData + '.' + userSig, expires_at:userExpiresAt};
+  }
   var id = safeId_(p.branch_id, 'branch_id');
   var branch = configMap_()[id];
-  var cache = CacheService.getScriptCache();
   var key = 'pin-fails:' + id;
   var fails = Number(cache.get(key) || 0);
   if (fails >= 5) throw new Error('Terlalu banyak percobaan PIN. Tunggu 15 menit.');
@@ -141,7 +168,9 @@ function authorizedSession_(p, branchId) {
   var claims;
   try { claims = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString()); }
   catch (err) { throw new Error('Sesi tidak valid. Masuk ulang.'); }
-  if (claims.branch_id !== branchId || !claims.exp || Date.now() > claims.exp) throw new Error('Sesi berakhir. Masuk ulang.');
+  if (!claims.exp || Date.now() > claims.exp) throw new Error('Sesi berakhir. Masuk ulang.');
+  if (claims.branch_id && claims.branch_id !== branchId) throw new Error('Sesi tidak valid. Masuk ulang.');
+  if (claims.username && !cashiersMap_().byUsername[String(claims.username).toLowerCase()]) throw new Error('Akun kasir tidak aktif.');
   var branch = configMap_()[branchId];
   if (!branch) throw new Error('Cabang tidak aktif.');
   return branch;
@@ -484,6 +513,24 @@ function configMap_() {
     }
   });
   return map;
+}
+
+function cashiersMap_() {
+  var sh = database_().getSheetByName('Master_Kasir');
+  if (!sh) throw new Error('Tab Master_Kasir belum ada. Jalankan setupDatabase() di Apps Script terlebih dahulu.');
+  var rows = sh.getLastRow() > 1 ? sh.getRange(2,1,sh.getLastRow()-1,4).getValues() : [];
+  var byUsername = {}, byName = {};
+  rows.forEach(function(x) {
+    if (!x[0] || (x[3] !== true && String(x[3]).toUpperCase() !== 'TRUE')) return;
+    var username = safeId_(x[0], 'username');
+    var name = safeText_(x[1], 'cashier_name', 80);
+    var pin = String(x[2]).trim();
+    if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN kasir ' + username + ' harus 4-8 digit.');
+    var record = {username:username, name:name, pin:pin};
+    byUsername[username.toLowerCase()] = record;
+    byName[name.toLowerCase()] = record;
+  });
+  return {byUsername:byUsername, byName:byName};
 }
 
 function authorizedBranch_(map,id,pin) {

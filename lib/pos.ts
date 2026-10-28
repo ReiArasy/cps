@@ -11,6 +11,7 @@ export type Branch = {
 };
 
 export type Session = {
+  username?: string;
   branchId: string;
   branchName: string;
   cashierName: string;

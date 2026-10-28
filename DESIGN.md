@@ -36,18 +36,19 @@ Tidak memakai gradasi ungu atau biru neon, glow, kartu metrik berikon, atau warn
 
 ## Screen structure
 
-### Kasir POS, ponsel
+### Kasir POS & Navigasi Sidebar
 
-1. Bar atas: status sinkronisasi di kiri, logo **Cuanki Cep Bewok Express** tanpa latar bundar merah tepat di tengah, dan tombol keluar sesi di kanan.
-2. Tiga tab jelas: **Kasir**, **Buka/Tutup Shift**, dan **Akun**. Tab tetap terjangkau ibu jari; tidak ada navigasi tersembunyi untuk pekerjaan utama.
+1. Navigasi menggunakan **Sidebar** (permanen di sebelah kiri pada desktop/tablet, dan *slide-over drawer* pada ponsel) dengan logo **Cuanki Cep Bewok Express** di bagian paling atas sidebar.
+2. Tiga menu utama di sidebar: **Kasir**, **Shift**, dan **Akun**. Tombol **Log Out** tidak ditempatkan di sidebar atau bar atas, melainkan hanya tersedia di dalam menu **Akun** (tanpa menampilkan ID shift, kode cabang, varian menu aktif, antrean sinkronisasi, maupun kendali sesi teknis).
 3. Penjaga alur operasional (*bounce alert modal*): kasir tidak dapat mencatat transaksi sebelum membuka shift, dan tidak dapat keluar sesi (*log out*) sebelum menutup shift yang sedang aktif. Saat keluar sesi setelah tutup shift, sesi di perangkat dihapus bersih.
-3. Daftar menu aktif dari Sheets sebagai baris penuh: nama, harga, tombol `−` / jumlah / `+` dengan area sentuh minimal 48×48 px. Jumlah nol tetap terlihat.
-4. Ringkasan keranjang menempel dekat bagian bawah layar, di atas tombol **Bayar** 56 px. Tampilkan total cup, total Rupiah, pilihan Tunai/QRIS; untuk Tunai tampilkan uang diterima dan kembalian.
-5. Setelah Bayar, tampilkan `Tersimpan`, `Menunggu sinkronisasi`, atau `Gagal, coba lagi` sesuai hasil. Jangan mengosongkan keranjang sebelum transaksi tersimpan lokal atau server mengakui ID.
+4. Daftar menu aktif dari Sheets sebagai baris penuh: nama, harga, tombol `−` / jumlah / `+` dengan area sentuh minimal 48×48 px. Jumlah nol tetap terlihat.
+5. Ringkasan keranjang menempel dekat bagian bawah layar, di atas tombol **Bayar** 54 px. Tampilkan total cup, total Rupiah, pilihan Tunai/QRIS; untuk Tunai, pembayaran default ke **Uang Pas** (tidak wajib mengetik uang diterima), disertai chip nominal cepat dan kalkulator kembalian opsional.
 
-### Tutup Shift, ponsel
+### Manajemen Shift (Modal Buka Shift & Modal Tutup Shift)
 
-Alur dimulai dengan layar **Buka Shift** untuk modal awal dan Cup Bawa. Saat tutup, urutkan: **Cup** (bawa terkunci, sisa, reject, fisik versus POS), **Kas & QRIS** (modal dan QRIS sistem sebagai angka baca), **Operasional**, **Cash opname** (seluruh uang fisik termasuk modal), lalu **Periksa dan tutup**. Ringkasan selisih berada tepat sebelum tombol konfirmasi. Tombol **Tutup Shift** 56 px dan tidak aktif saat input wajib kosong atau antrean transaksi belum sinkron.
+1. Saat shift belum dibuka, layar **Shift** menampilkan kartu terpusat dengan tombol **Buka Shift**. Menekan tombol tersebut membuka **Modal Buka Shift** yang berisi pilihan cabang, Modal Awal Kas, Cup Bawa (minimal 1), dan tombol **Mulai Shift**.
+2. Saat shift sedang terbuka, layar **Shift** menampilkan kartu metrik **Total Pendapatan Tunai** dan **QRIS Sistem**, ringkasan status shift, serta tombol **Tutup Shift**.
+3. Menekan **Tutup Shift** membuka **Modal Tutup Shift** yang memuat: (1) **Audit cup** (`Cup Sisa`, `Cup Reject`, fisik vs POS), (2) **Operasional harian**, (3) **Cash opname laci** (`Total uang fisik di laci` beserta penjelasan asal uang fisik dan rumus perhitungannya tepat di bawah input), (4) **Periksa sebelum tutup** (`Omset POS di perangkat`, `QRIS penjualan`, `Penjualan tunai`, `Operasional tunai`, `Kas sistem tanpa modal`, `Modal awal`, `Kas laci seharusnya`, dan `Keterangan selisih kas laci`), (5) **Checkbox validasi** (*"Data yang saya isi sudah valid"*), serta (6) tombol **Kirim laporan tutup shift**.
 
 ### Admin, desktop
 
