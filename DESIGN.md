@@ -38,8 +38,9 @@ Tidak memakai gradasi ungu atau biru neon, glow, kartu metrik berikon, atau warn
 
 ### Kasir POS, ponsel
 
-1. Bar atas: **Cuanki POS**, cabang aktif, nama kasir, dan status sinkronisasi dengan jumlah transaksi menunggu.
-2. Dua tab jelas: **Kasir** dan **Tutup Shift**. Tab tetap terjangkau ibu jari; tidak ada navigasi tersembunyi untuk pekerjaan utama.
+1. Bar atas: status sinkronisasi di kiri, logo **Cuanki Cep Bewok Express** tanpa latar bundar merah tepat di tengah, dan tombol keluar sesi di kanan.
+2. Tiga tab jelas: **Kasir**, **Buka/Tutup Shift**, dan **Akun**. Tab tetap terjangkau ibu jari; tidak ada navigasi tersembunyi untuk pekerjaan utama.
+3. Penjaga alur operasional (*bounce alert modal*): kasir tidak dapat mencatat transaksi sebelum membuka shift, dan tidak dapat keluar sesi (*log out*) sebelum menutup shift yang sedang aktif. Saat keluar sesi setelah tutup shift, sesi di perangkat dihapus bersih.
 3. Daftar menu aktif dari Sheets sebagai baris penuh: nama, harga, tombol `−` / jumlah / `+` dengan area sentuh minimal 48×48 px. Jumlah nol tetap terlihat.
 4. Ringkasan keranjang menempel dekat bagian bawah layar, di atas tombol **Bayar** 56 px. Tampilkan total cup, total Rupiah, pilihan Tunai/QRIS; untuk Tunai tampilkan uang diterima dan kembalian.
 5. Setelah Bayar, tampilkan `Tersimpan`, `Menunggu sinkronisasi`, atau `Gagal, coba lagi` sesuai hasil. Jangan mengosongkan keranjang sebelum transaksi tersimpan lokal atau server mengakui ID.

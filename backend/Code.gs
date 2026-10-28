@@ -174,7 +174,14 @@ function openShift_(p) {
     if (String(existing[0]) !== date || String(existing[1]) !== branchId || Number(existing[3]) !== bawa || Number(existing[9]) !== modal) throw new Error('Data pembukaan shift berbeda dari yang tersimpan.');
     return {ok:true, shift_id:id, opened:true, closed:String(existing[22]) === 'CLOSED'};
   }
-  if (hasBranchDate_(shifts,date,branchId)) throw new Error('Cabang ini sudah memiliki shift pada tanggal tersebut.');
+  if (shifts.getLastRow() > 1) {
+    var openRows = shifts.getRange(2,1,shifts.getLastRow()-1,24).getValues();
+    openRows.forEach(function(r, idx) {
+      if (String(r[1]) === date && String(r[2]) === branchId && String(r[23]) === 'OPEN') {
+        shifts.getRange(idx + 2, 24).setValue('CLOSED');
+      }
+    });
+  }
   shifts.appendRow([id,date,branchId,safeText_(s.cashier_name,'cashier_name',80),bawa,'','','','','',modal,0,0,0,0,0,0,0,'',0,'',branch.wage,branch.rent,'OPEN',new Date()]);
   return {ok:true, shift_id:id, opened:true, closed:false};
 }
@@ -200,8 +207,13 @@ function getShift_(p) {
   var id = p.shift_id ? safeId_(p.shift_id, 'shift_id') : '';
   var row = id ? shiftRow_(shifts, id) : 0;
   if (!row && p.date && shifts.getLastRow() > 1) {
-    var pairs = shifts.getRange(2,2,shifts.getLastRow()-1,2).getValues();
-    for (var i = 0; i < pairs.length; i++) if (String(pairs[i][0]) === String(p.date) && String(pairs[i][1]) === branchId) { row = i + 2; break; }
+    var pairs = shifts.getRange(2,2,shifts.getLastRow()-1,23).getValues();
+    for (var i = pairs.length - 1; i >= 0; i--) {
+      if (String(pairs[i][0]) === String(p.date) && String(pairs[i][1]) === branchId) {
+        row = i + 2;
+        if (String(pairs[i][22]) === 'OPEN') break;
+      }
+    }
   }
   if (!row) return {ok:true, found:false};
   var data = shifts.getRange(row,1,1,25).getValues()[0];

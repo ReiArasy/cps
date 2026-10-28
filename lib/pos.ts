@@ -16,6 +16,7 @@ export type Session = {
   cashierName: string;
   token: string;
   expiresAt: number;
+  loginAt?: number;
   shiftId?: string;
   shiftDate?: string;
 };
