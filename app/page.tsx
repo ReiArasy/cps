@@ -193,7 +193,9 @@ export default function Home() {
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setDraft({ ...emptyShiftDraft(), ...readLocal<ShiftDraft>(draftKey(session.branchId, date), emptyShiftDraft()) });
+      const saved = readLocal<ShiftDraft & { cashCountMode?: string }>(draftKey(session.branchId, date), emptyShiftDraft());
+      setDraft({ ...emptyShiftDraft(), ...saved,
+        tunaiFisikLaci: saved.cashCountMode === "SALES_ONLY" ? null : saved.tunaiFisikLaci });
       setClosed(readLocal<boolean>(closedKey(session.branchId, date), false));
       setShiftError("");
     });
@@ -256,8 +258,7 @@ export default function Home() {
   const qrisNet = shiftSales.filter((sale) => sale.paymentMethod === "QRIS").reduce((sum, sale) => sum + sale.amount, 0);
   const cashIntake = shiftRevenue - qrisNet - operationTotal;
   const expectedDrawer = draft.modalAwal !== null ? draft.modalAwal + cashIntake : null;
-  const expectedPhysical = draft.cashCountMode === "FULL_DRAWER" ? expectedDrawer : cashIntake;
-  const cashDifference = expectedPhysical !== null && draft.tunaiFisikLaci !== null ? draft.tunaiFisikLaci - expectedPhysical : null;
+  const cashDifference = expectedDrawer !== null && draft.tunaiFisikLaci !== null ? draft.tunaiFisikLaci - expectedDrawer : null;
   const requiredShiftValues = [draft.cupBawa, draft.cupSisa, draft.cupReject, draft.modalAwal, draft.tunaiFisikLaci];
   const shiftValid = requiredShiftValues.every((value) => value !== null)
     && physicalCups !== null && physicalCups >= 0 && (draft.cupBawa || 0) >= 1 && operationTotal <= shiftRevenue - qrisNet
@@ -411,7 +412,7 @@ export default function Home() {
           op_kebersihan: draft.opKebersihan || 0, op_penitipan: draft.opPenitipan || 0,
           op_galon: draft.opGalon || 0,
           other_expenses: draft.otherExpenses.map((item) => ({ name: item.name.trim(), amount: item.amount })),
-          tunai_fisik_laci: draft.tunaiFisikLaci, cash_count_mode: draft.cashCountMode,
+          tunai_fisik_laci: draft.tunaiFisikLaci, cash_count_mode: "FULL_DRAWER",
         },
         session_token: session.token,
       });
@@ -588,16 +589,15 @@ export default function Home() {
               </section>
 
               <section className="form-section" aria-labelledby="drawer-title">
-                <div className="section-heading"><div><h2 id="drawer-title">Cash opname laci</h2><p>Pilih cara hitung fisik yang sesuai di lapangan.</p></div></div>
-                <div className="payment-options" role="group" aria-label="Cara hitung kas fisik"><button type="button" className={draft.cashCountMode !== "FULL_DRAWER" ? "selected" : ""} onClick={() => updateDraft({ cashCountMode: "SALES_ONLY", tunaiFisikLaci: null })}>Di luar modal</button><button type="button" className={draft.cashCountMode === "FULL_DRAWER" ? "selected" : ""} onClick={() => updateDraft({ cashCountMode: "FULL_DRAWER", tunaiFisikLaci: null })}>Seluruh laci</button></div>
-                <div style={{ height: 18 }} /><NumberField id="tunai-fisik" label={draft.cashCountMode === "FULL_DRAWER" ? "Total uang fisik di laci" : "Uang hasil jualan fisik (di luar modal)"} value={draft.tunaiFisikLaci} onChange={(value) => updateDraft({ tunaiFisikLaci: value })} currency required />
+                <div className="section-heading"><div><h2 id="drawer-title">Cash opname laci</h2><p>Hitung seluruh uang fisik di laci, termasuk modal awal.</p></div></div>
+                <NumberField id="tunai-fisik" label="Total uang fisik di laci" value={draft.tunaiFisikLaci} onChange={(value) => updateDraft({ tunaiFisikLaci: value })} currency required />
               </section>
             </div>
 
             <aside className="shift-preview" aria-labelledby="preview-title">
               <div className="preview-head"><h2 id="preview-title">Periksa sebelum tutup</h2><p>{session.branchName} · {date}</p></div>
               <div className="preview-lines"><div><span>Omset POS di perangkat</span><strong>{rupiah(shiftRevenue)}</strong></div><div><span>QRIS dari penjualan</span><strong>{rupiah(qrisNet)}</strong></div><div><span>Penjualan tunai</span><strong>{rupiah(shiftRevenue - qrisNet)}</strong></div><div><span>Operasional tunai</span><strong>− {rupiah(operationTotal)}</strong></div><div className="preview-emphasis"><span>Kas sistem tanpa modal</span><strong>{rupiah(cashIntake)}</strong></div><div><span>Modal awal</span><strong>{draft.modalAwal === null ? "—" : rupiah(draft.modalAwal)}</strong></div><div><span>Kas laci seharusnya</span><strong>{expectedDrawer === null ? "—" : rupiah(expectedDrawer)}</strong></div></div>
-              <div className={`audit-result ${cashDifference === null ? "audit-pending" : cashDifference === 0 ? "audit-pass" : "audit-difference"}`}><span>Selisih kas laci</span><strong>{cashDifference === null ? "Belum lengkap" : cashDifference === 0 ? "PAS" : cashDifference < 0 ? `KURANG ${rupiah(-cashDifference)}` : `LEBIH ${rupiah(cashDifference)}`}</strong><small>{cashDifference === null ? "Isi uang fisik." : `Fisik ${rupiah(draft.tunaiFisikLaci || 0)} − seharusnya ${rupiah(expectedPhysical || 0)}`}</small></div>
+              <div className={`audit-result ${cashDifference === null ? "audit-pending" : cashDifference === 0 ? "audit-pass" : "audit-difference"}`}><span>Selisih kas laci</span><strong>{cashDifference === null ? "Belum lengkap" : cashDifference === 0 ? "PAS" : cashDifference < 0 ? `KURANG ${rupiah(-cashDifference)}` : `LEBIH ${rupiah(cashDifference)}`}</strong><small>{cashDifference === null ? "Isi uang fisik." : `Fisik ${rupiah(draft.tunaiFisikLaci || 0)} − seharusnya ${rupiah(expectedDrawer || 0)}`}</small></div>
               {pendingToday > 0 && <div className="message warning-message"><CloudUpload size={18} /><span>{pendingToday} transaksi hari ini belum tersinkron. Kirim dulu sebelum tutup shift.</span></div>}
               {shiftError && <div className="message error-message" role="alert"><CircleAlert size={18} /><span>{shiftError}</span></div>}
               <button className="primary-button close-button" type="submit" disabled={!shiftValid}><span>{shiftBusy ? "Mengirim tutup shift…" : closed ? "Shift sudah ditutup" : "Tutup Shift & Kirim"}</span><ArrowRight size={20} /></button>

@@ -45,7 +45,7 @@ Tidak memakai gradasi ungu atau biru neon, glow, kartu metrik berikon, atau warn
 
 ### Tutup Shift, ponsel
 
-Alur dimulai dengan layar **Buka Shift** untuk modal awal dan Cup Bawa. Saat tutup, urutkan: **Cup** (bawa terkunci, sisa, reject, fisik versus POS), **Kas & QRIS** (modal dan QRIS sistem sebagai angka baca), **Operasional**, **Cash opname** (pilihan hitung seluruh laci atau di luar modal), lalu **Periksa dan tutup**. Ringkasan selisih berada tepat sebelum tombol konfirmasi. Tombol **Tutup Shift** 56 px dan tidak aktif saat input wajib kosong atau antrean transaksi belum sinkron.
+Alur dimulai dengan layar **Buka Shift** untuk modal awal dan Cup Bawa. Saat tutup, urutkan: **Cup** (bawa terkunci, sisa, reject, fisik versus POS), **Kas & QRIS** (modal dan QRIS sistem sebagai angka baca), **Operasional**, **Cash opname** (seluruh uang fisik termasuk modal), lalu **Periksa dan tutup**. Ringkasan selisih berada tepat sebelum tombol konfirmasi. Tombol **Tutup Shift** 56 px dan tidak aktif saat input wajib kosong atau antrean transaksi belum sinkron.
 
 ### Admin, desktop
 

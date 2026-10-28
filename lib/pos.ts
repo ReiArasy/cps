@@ -65,7 +65,6 @@ export type ShiftDraft = {
   opGalon: number | null;
   otherExpenses: OtherExpense[];
   tunaiFisikLaci: number | null;
-  cashCountMode: "FULL_DRAWER" | "SALES_ONLY";
 };
 
 export const SKU = ["MN-AYM", "MN-KRE", "MN-CKJ"] as const;
@@ -83,7 +82,6 @@ export function emptyShiftDraft(): ShiftDraft {
     opGalon: 0,
     otherExpenses: [],
     tunaiFisikLaci: null,
-    cashCountMode: "SALES_ONLY",
   };
 }
 

@@ -24,7 +24,7 @@ POS multi-cabang dengan antrean transaksi lokal saat offline dan rekonsiliasi ha
 1. Kasir memilih cabang, memasukkan nama dan PIN 4–8 digit. Sesi bertanda tangan disimpan di perangkat sampai kedaluwarsa atau logout, sehingga aplikasi yang tertutup dapat dibuka kembali tanpa kehilangan shift.
 2. Sebelum berjualan, kasir membuka shift secara online dengan modal awal kas dan Cup Bawa minimal satu. Tidak ada restock selama shift.
 3. Kasir menambah kuantitas menu aktif dari `Master_Config`, memilih Tunai/QRIS, dan menekan **Bayar**. QRIS harus terkonfirmasi di aplikasi merchant. ID transaksi tetap dipakai saat antrean offline dikirim ulang.
-4. Saat tutup lapak, kasir mencatat cup sisa/reject, biaya operasional, dan uang fisik. QRIS dan kas sistem dihitung dari transaksi; tidak ada input saldo QRIS awal/akhir.
+4. Saat tutup lapak, kasir mencatat cup sisa/reject, biaya operasional, dan seluruh uang fisik di laci termasuk modal awal. QRIS dan kas sistem dihitung dari transaksi; tidak ada input saldo QRIS awal/akhir.
 4. Admin memfilter `Laporan_Admin` berdasarkan tanggal/cabang dan memeriksa `status_audit`.
 
 ## Capabilities and Constraints

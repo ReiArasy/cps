@@ -341,12 +341,11 @@ function closeShiftV2_(p) {
   if (op > totals.cash) throw new Error('Operasional melebihi penjualan tunai shift.');
   var physical = money_(s.tunai_fisik_laci,'tunai_fisik_laci');
   var mode = String(s.cash_count_mode || 'FULL_DRAWER');
-  if (mode !== 'FULL_DRAWER' && mode !== 'SALES_ONLY') throw new Error('Mode hitung kas tidak valid.');
-  var fullDrawer = mode === 'SALES_ONLY' ? physical + Number(values[10]) : physical;
+  if (mode !== 'FULL_DRAWER') throw new Error('Kas fisik harus mencakup seluruh isi laci termasuk modal awal.');
   shifts.getRange(row,6,1,2).setValues([[sisa,reject]]);
   shifts.getRange(row,8).setValue(bawa-sisa-reject);
   shifts.getRange(row,12,1,2).setValues([[0,totals.qris]]);
-  shifts.getRange(row,14,1,8).setValues([[lampu,kebersihan,penitipan,galon,other,names.join('; '),op,fullDrawer]]);
+  shifts.getRange(row,14,1,8).setValues([[lampu,kebersihan,penitipan,galon,other,names.join('; '),op,physical]]);
   shifts.getRange(row,24).setValue('CLOSED');
   setShiftFormulas_(shifts,row);
   refreshMenuReport_(ss,id,String(values[1]),branchId);

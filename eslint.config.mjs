@@ -5,5 +5,5 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", ".next-verify/**", "out/**", "node_modules/**", "next-env.d.ts", ".agents/**", ".design-references/**", ".taste-skill/**"]),
+  globalIgnores([".next/**", ".next-*/**", "out/**", "node_modules/**", "next-env.d.ts", ".agents/**", ".design-references/**", ".taste-skill/**"]),
 ]);
