@@ -14,20 +14,22 @@ export type Session = {
   branchId: string;
   branchName: string;
   cashierName: string;
-  pin: string;
+  token: string;
+  expiresAt: number;
+  shiftId?: string;
+  shiftDate?: string;
 };
 
 export type PaymentMethod = "TUNAI" | "QRIS";
-export type Quantities = { ayam: number; kare: number; creamy: number };
+export type Quantities = Record<string, number>;
 
 export type TransactionPayload = {
   trx_id: string;
   timestamp: string;
   branch_id: string;
   cashier_name: string;
-  qty_ayam: number;
-  qty_kare: number;
-  qty_creamy: number;
+  shift_id: string;
+  items: { sku_code: string; qty: number }[];
   total_amount: number;
   payment_method: PaymentMethod;
 };
@@ -39,6 +41,7 @@ export type QueueEntry = {
 
 export type SaleRecord = {
   id: string;
+  shiftId: string;
   date: string;
   branchId: string;
   cashierName: string;
@@ -56,14 +59,13 @@ export type ShiftDraft = {
   cupSisa: number | null;
   cupReject: number | null;
   modalAwal: number | null;
-  qrisAwal: number | null;
-  qrisAkhir: number | null;
   opLampu: number | null;
   opKebersihan: number | null;
   opPenitipan: number | null;
   opGalon: number | null;
   otherExpenses: OtherExpense[];
   tunaiFisikLaci: number | null;
+  cashCountMode: "FULL_DRAWER" | "SALES_ONLY";
 };
 
 export const SKU = ["MN-AYM", "MN-KRE", "MN-CKJ"] as const;
@@ -75,14 +77,13 @@ export function emptyShiftDraft(): ShiftDraft {
     cupSisa: null,
     cupReject: null,
     modalAwal: null,
-    qrisAwal: 0,
-    qrisAkhir: null,
     opLampu: 0,
     opKebersihan: 0,
     opPenitipan: 0,
     opGalon: 0,
     otherExpenses: [],
     tunaiFisikLaci: null,
+    cashCountMode: "SALES_ONLY",
   };
 }
 

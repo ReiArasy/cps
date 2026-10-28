@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "Cuanki POS",
   description: "Kasir dan rekonsiliasi shift Cuanki multi-cabang",
   applicationName: "Cuanki POS",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Cuanki POS" },
+  icons: { apple: "/icon-192.png" },
 };
 
 export const viewport: Viewport = {

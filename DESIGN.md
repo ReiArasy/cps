@@ -39,13 +39,13 @@ Tidak memakai gradasi ungu atau biru neon, glow, kartu metrik berikon, atau warn
 
 1. Bar atas: **Cuanki POS**, cabang aktif, nama kasir, dan status sinkronisasi dengan jumlah transaksi menunggu.
 2. Dua tab jelas: **Kasir** dan **Tutup Shift**. Tab tetap terjangkau ibu jari; tidak ada navigasi tersembunyi untuk pekerjaan utama.
-3. Daftar tiga menu sebagai baris penuh: nama, harga, tombol `−` / jumlah / `+` dengan area sentuh minimal 48×48 px. Jumlah nol tetap terlihat.
+3. Daftar menu aktif dari Sheets sebagai baris penuh: nama, harga, tombol `−` / jumlah / `+` dengan area sentuh minimal 48×48 px. Jumlah nol tetap terlihat.
 4. Ringkasan keranjang menempel dekat bagian bawah layar, di atas tombol **Bayar** 56 px. Tampilkan total cup, total Rupiah, pilihan Tunai/QRIS; untuk Tunai tampilkan uang diterima dan kembalian.
 5. Setelah Bayar, tampilkan `Tersimpan`, `Menunggu sinkronisasi`, atau `Gagal, coba lagi` sesuai hasil. Jangan mengosongkan keranjang sebelum transaksi tersimpan lokal atau server mengakui ID.
 
 ### Tutup Shift, ponsel
 
-Urutkan menurut alur lapangan: **Cup** (bawa, sisa, reject, fisik versus POS), **Kas & QRIS** (modal awal, QRIS awal/akhir, uang fisik laci), **Operasional** (Lampu, Kebersihan, Penitipan, Galon, tambah pengeluaran), lalu **Periksa dan tutup**. Ringkasan selisih berada tepat sebelum tombol konfirmasi. Tombol **Tutup Shift** 56 px dan tidak aktif saat input wajib kosong atau antrean transaksi untuk tanggal/cabang itu belum sinkron.
+Alur dimulai dengan layar **Buka Shift** untuk modal awal dan Cup Bawa. Saat tutup, urutkan: **Cup** (bawa terkunci, sisa, reject, fisik versus POS), **Kas & QRIS** (modal dan QRIS sistem sebagai angka baca), **Operasional**, **Cash opname** (pilihan hitung seluruh laci atau di luar modal), lalu **Periksa dan tutup**. Ringkasan selisih berada tepat sebelum tombol konfirmasi. Tombol **Tutup Shift** 56 px dan tidak aktif saat input wajib kosong atau antrean transaksi belum sinkron.
 
 ### Admin, desktop
 
