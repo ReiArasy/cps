@@ -259,6 +259,17 @@ export default function Home() {
     if (!session?.shiftId || !session.branchId || !navigator.onLine) return;
     void gasPost({ action: "GET_SHIFT", branch_id: session.branchId, shift_id: session.shiftId,
       session_token: session.token }).then((state) => {
+      if (state.found && state.bumbu_bawa && typeof state.bumbu_bawa === "object") {
+        const serverBumbu = state.bumbu_bawa as Record<string, number>;
+        if (Object.keys(serverBumbu).length > 0) {
+          setDraft((prev) => {
+            if (Object.keys(prev.bumbuBawa || {}).length > 0) return prev;
+            const merged = { ...prev, bumbuBawa: serverBumbu };
+            writeLocal(draftKey(session.branchId, session.shiftDate || jakartaDate()), merged);
+            return merged;
+          });
+        }
+      }
       if (state.found && state.closed) {
         setClosed(true);
         writeLocal(closedKey(session.branchId, session.shiftDate || jakartaDate()), true);
@@ -316,11 +327,29 @@ export default function Home() {
     const bySku = new Map((branch?.menus || []).map((menu) => [menu.sku_code, menu]));
     return [...bySku.values()];
   }, [branch]);
+  const openBranchObj = branches.find((item) => item.branch_id === openBranch) || branches[0];
+  const openBranchMenus = useMemo(() => {
+    const bySku = new Map((openBranchObj?.menus || []).map((menu) => [menu.sku_code, menu]));
+    return [...bySku.values()];
+  }, [openBranchObj]);
+  const totalBumbuBawa = openBranchMenus.reduce((sum, menu) => sum + (draft.bumbuBawa?.[menu.sku_code] || 0), 0);
   const cartCups = Object.values(cart).reduce((sum, value) => sum + value, 0);
   const cartTotal = menus.reduce((sum, menu) => sum + (cart[menu.sku_code] || 0) * menu.sell_price, 0);
   const effectiveCashReceived = cashReceived === null ? cartTotal : cashReceived;
   const change = cartCups === 0 ? 0 : effectiveCashReceived - cartTotal;
-  const shiftSales = ledger.filter((sale) => Boolean(session?.shiftId) && sale.shiftId === session?.shiftId);
+  const shiftSales = useMemo(
+    () => ledger.filter((sale) => Boolean(session?.shiftId) && sale.shiftId === session?.shiftId),
+    [ledger, session?.shiftId]
+  );
+  const shiftSoldBySku = useMemo(() => {
+    const counts: Record<string, number> = {};
+    shiftSales.forEach((sale) => {
+      (sale.items || []).forEach((item) => {
+        counts[item.sku_code] = (counts[item.sku_code] || 0) + item.qty;
+      });
+    });
+    return counts;
+  }, [shiftSales]);
   const shiftCups = shiftSales.reduce((sum, sale) => sum + sale.cups, 0);
   const shiftRevenue = shiftSales.reduce((sum, sale) => sum + sale.amount, 0);
   const pendingToday = queue.filter((entry) => Boolean(session?.shiftId) && entry.payload.shift_id === session?.shiftId).length;
@@ -328,6 +357,17 @@ export default function Home() {
   const physicalCups = draft.cupBawa !== null && draft.cupSisa !== null && draft.cupReject !== null
     ? draft.cupBawa - draft.cupSisa - draft.cupReject : null;
   const cupDifference = physicalCups === null ? null : physicalCups - shiftCups;
+  const allBumbuSisaFilled = menus.length > 0 && menus.every((menu) => {
+    const bawa = draft.bumbuBawa?.[menu.sku_code] || 0;
+    if (bawa === 0) return true;
+    return draft.bumbuSisa?.[menu.sku_code] !== undefined && draft.bumbuSisa?.[menu.sku_code] !== null;
+  });
+  const bumbuSisaValid = menus.every((menu) => {
+    const bawa = draft.bumbuBawa?.[menu.sku_code] || 0;
+    const sisa = draft.bumbuSisa?.[menu.sku_code] ?? (bawa === 0 ? 0 : null);
+    if (sisa === null) return false;
+    return sisa <= bawa;
+  });
   const operationTotal = (draft.opLampu || 0) + (draft.opKebersihan || 0) + (draft.opPenitipan || 0)
     + (draft.opGalon || 0) + draft.otherExpenses.reduce((sum, item) => sum + (item.amount || 0), 0);
   const qrisNet = shiftSales.filter((sale) => sale.paymentMethod === "QRIS").reduce((sum, sale) => sum + sale.amount, 0);
@@ -338,15 +378,55 @@ export default function Home() {
   const cashDifference = expectedDrawer !== null && draft.tunaiFisikLaci !== null ? draft.tunaiFisikLaci - expectedDrawer : null;
   const requiredShiftValues = [draft.cupBawa, draft.cupSisa, draft.cupReject, draft.modalAwal, draft.tunaiFisikLaci];
   const shiftValid = requiredShiftValues.every((value) => value !== null)
+    && allBumbuSisaFilled && bumbuSisaValid
     && physicalCups !== null && physicalCups >= 0 && (draft.cupBawa || 0) >= 1 && operationTotal <= availableCashForOp
     && draft.otherExpenses.every((item) => item.name.trim() && item.amount !== null)
     && closeConfirmed && pendingToday === 0 && online && !!session?.shiftId && !closed && !shiftBusy;
 
   function updateDraft(patch: Partial<ShiftDraft>) {
     if (!session) return;
-    const next = { ...draft, ...patch };
-    setDraft(next);
-    if (session.shiftId && session.branchId) writeLocal(draftKey(session.branchId, date), next);
+    setDraft((prev) => {
+      const next = { ...prev, ...patch };
+      if (session.shiftId && session.branchId) writeLocal(draftKey(session.branchId, date), next);
+      return next;
+    });
+  }
+
+  function updateBumbuBawa(sku: string, value: number | null) {
+    if (!session) return;
+    setDraft((prev) => {
+      const nextBumbuBawa = { ...(prev.bumbuBawa || {}), [sku]: value };
+      const nextSum = openBranchMenus.reduce((sum, menu) => sum + (nextBumbuBawa[menu.sku_code] || 0), 0);
+      const nextCupBawa = !prev.cupBawaManual || (prev.cupBawa || 0) < nextSum
+        ? (nextSum > 0 ? nextSum : null)
+        : prev.cupBawa;
+      const next = { ...prev, bumbuBawa: nextBumbuBawa, cupBawa: nextCupBawa };
+      if (session.shiftId && session.branchId) writeLocal(draftKey(session.branchId, date), next);
+      return next;
+    });
+  }
+
+  function updateBumbuSisa(sku: string, value: number | null) {
+    if (!session) return;
+    setDraft((prev) => {
+      const nextBumbuSisa = { ...(prev.bumbuSisa || {}), [sku]: value };
+      const allFilled = menus.length > 0 && menus.every((menu) => {
+        const bawa = prev.bumbuBawa?.[menu.sku_code] || 0;
+        if (bawa === 0) return true;
+        return nextBumbuSisa[menu.sku_code] !== undefined && nextBumbuSisa[menu.sku_code] !== null;
+      });
+      const sumSisa = menus.reduce((sum, menu) => sum + (nextBumbuSisa[menu.sku_code] || 0), 0);
+      const sumBawa = menus.reduce((sum, menu) => sum + (prev.bumbuBawa?.[menu.sku_code] || 0), 0);
+      const extraCups = Math.max(0, (prev.cupBawa || 0) - sumBawa);
+      const next = {
+        ...prev,
+        bumbuSisa: nextBumbuSisa,
+        cupSisa: allFilled ? sumSisa + extraCups : prev.cupSisa,
+        cupReject: prev.cupReject === null ? 0 : prev.cupReject,
+      };
+      if (session.shiftId && session.branchId) writeLocal(draftKey(session.branchId, date), next);
+      return next;
+    });
   }
 
   function navigateTab(nextTab: TabKey) {
@@ -381,12 +461,25 @@ export default function Home() {
       );
       return;
     }
-    if (delta > 0 && shiftCups + cartCups + delta > (draft.cupBawa || 0)) {
-      triggerPopup(
-        "Batas Cup Bawa Tercapai",
-        `Pesanan melebihi sisa Cup Bawa shift ini (${Math.max(0, (draft.cupBawa || 0) - shiftCups)} cup tersisa dari ${draft.cupBawa || 0} Cup Bawa). Tidak ada restock di tengah shift.`,
-      );
-      return;
+    if (delta > 0) {
+      const bawaSku = draft.bumbuBawa?.[sku];
+      const soldSku = shiftSoldBySku[sku] || 0;
+      const currentCartSku = cart[sku] || 0;
+      const menuObj = menus.find((m) => m.sku_code === sku);
+      if (bawaSku !== undefined && bawaSku !== null && soldSku + currentCartSku + delta > bawaSku) {
+        triggerPopup(
+          "Stok Bumbu Menu Habis",
+          `Stok bungkus bumbu ${menuObj?.menu_name || sku} tersisa ${Math.max(0, bawaSku - soldSku)} bungkus (dari ${bawaSku} bawa awal). Kasir tidak dapat menambah pesanan varian ini lagi.`,
+        );
+        return;
+      }
+      if (shiftCups + cartCups + delta > (draft.cupBawa || 0)) {
+        triggerPopup(
+          "Batas Cup Bawa Tercapai",
+          `Pesanan melebihi sisa Cup Bawa shift ini (${Math.max(0, (draft.cupBawa || 0) - shiftCups)} cup tersisa dari ${draft.cupBawa || 0} Cup Bawa). Tidak ada restock di tengah shift.`,
+        );
+        return;
+      }
     }
     setCart((current) => ({ ...current, [sku]: Math.max(0, (current[sku] || 0) + delta) }));
   }
@@ -464,10 +557,25 @@ export default function Home() {
       triggerPopup("Cabang Belum Dipilih", "Pilih cabang operasional terlebih dahulu sebelum memulai shift.");
       return;
     }
-    if (draft.modalAwal === null || !draft.cupBawa || draft.cupBawa < 1) {
-      triggerPopup("Data Shift Belum Lengkap", "Isi Modal Awal Kas dan Cup Bawa (minimal 1 cup) sebelum memulai shift.");
+    const branchMenus = chosenBranch.menus || [];
+    const sumBumbuBawa = branchMenus.reduce((sum, menu) => sum + (draft.bumbuBawa?.[menu.sku_code] || 0), 0);
+    if (sumBumbuBawa < 1) {
+      triggerPopup("Stok Bumbu Belum Lengkap", "Isi Stok Bawa Awal (bungkus bumbu) minimal 1 bungkus sebelum memulai shift.");
       return;
     }
+    const effectiveCupBawa = draft.cupBawa !== null ? draft.cupBawa : sumBumbuBawa;
+    if (draft.modalAwal === null || effectiveCupBawa < 1) {
+      triggerPopup("Data Shift Belum Lengkap", "Isi Modal Awal Kas dan Stok Bumbu Bawa (minimal 1 bungkus/cup) sebelum memulai shift.");
+      return;
+    }
+    if (effectiveCupBawa < sumBumbuBawa) {
+      triggerPopup("Cup Bawa Kurang dari Total Bumbu", `Jumlah Cup Bawa (${effectiveCupBawa} cup) tidak boleh kurang dari total bungkus bumbu yang dibawa (${sumBumbuBawa} bungkus).`);
+      return;
+    }
+    const cleanBumbuBawa: Record<string, number> = {};
+    branchMenus.forEach((menu) => {
+      cleanBumbuBawa[menu.sku_code] = draft.bumbuBawa?.[menu.sku_code] || 0;
+    });
     let shiftId = draft.shiftId || crypto.randomUUID();
     const today = jakartaDate();
     setOpenBusy(true);
@@ -482,7 +590,8 @@ export default function Home() {
             date: today,
             branch_id: chosenBranch.branch_id,
             cashier_name: session.cashierName,
-            cup_bawa: draft.cupBawa,
+            cup_bawa: effectiveCupBawa,
+            bumbu_bawa: cleanBumbuBawa,
             modal_awal: draft.modalAwal,
           },
         });
@@ -504,7 +613,13 @@ export default function Home() {
           throw innerError;
         }
       }
-      const nextDraft: ShiftDraft = { ...emptyShiftDraft(), modalAwal: draft.modalAwal, cupBawa: draft.cupBawa, shiftId };
+      const nextDraft: ShiftDraft = {
+        ...emptyShiftDraft(),
+        modalAwal: draft.modalAwal,
+        cupBawa: effectiveCupBawa,
+        bumbuBawa: cleanBumbuBawa,
+        shiftId,
+      };
       writeLocal(draftKey(chosenBranch.branch_id, today), nextDraft);
       writeLocal(closedKey(chosenBranch.branch_id, today), false);
       setDraft(nextDraft);
@@ -522,7 +637,7 @@ export default function Home() {
       setSession(next);
       setOpenModalVisible(false);
       setTab("pos");
-      setNotice(`Shift ${chosenBranch.branch_name} dibuka dengan modal ${rupiah(draft.modalAwal)} dan ${draft.cupBawa} cup.`);
+      setNotice(`Shift ${chosenBranch.branch_name} dibuka dengan modal ${rupiah(draft.modalAwal)} dan ${effectiveCupBawa} cup.`);
       void flushQueue();
     } catch (error) {
       setOpenError(error instanceof Error ? error.message : "Buka shift gagal.");
@@ -616,6 +731,19 @@ export default function Home() {
       triggerPopup("Keranjang Masih Kosong", "Pilih minimal 1 cup menu cuanki sebelum melanjutkan ke metode pembayaran.");
       return;
     }
+    for (const menu of menus) {
+      const qty = cart[menu.sku_code] || 0;
+      if (qty <= 0) continue;
+      const bawaSku = draft.bumbuBawa?.[menu.sku_code];
+      const soldSku = shiftSoldBySku[menu.sku_code] || 0;
+      if (bawaSku !== undefined && bawaSku !== null && soldSku + qty > bawaSku) {
+        triggerPopup(
+          "Stok Bumbu Menu Habis",
+          `Pesanan ${menu.menu_name} (${qty} cup) melebihi sisa stok bungkus bumbu (${Math.max(0, bawaSku - soldSku)} bungkus tersisa).`,
+        );
+        return;
+      }
+    }
     if (shiftCups + cartCups > (draft.cupBawa || 0)) {
       triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
       return;
@@ -686,6 +814,7 @@ export default function Home() {
       amount: cartTotal,
       paymentMethod: payment,
       synced: false,
+      items: payload.items,
     };
     try {
       saveQueue([...queueRef.current, entry]);
@@ -728,6 +857,14 @@ export default function Home() {
       triggerPopup("Antrean Belum Tersinkron", `Masih ada ${pendingToday} transaksi yang belum terkirim ke Google Sheets. Tekan Kirim Ulang terlebih dahulu.`);
       return;
     }
+    if (!allBumbuSisaFilled) {
+      triggerPopup("Audit Bumbu Belum Lengkap", "Isi Sisa Bungkus Bumbu untuk setiap menu sebelum mengirim laporan tutup shift.");
+      return;
+    }
+    if (!bumbuSisaValid) {
+      triggerPopup("Sisa Bumbu Tidak Valid", "Jumlah Sisa Bungkus Bumbu tidak boleh melebihi Bawa Awal pada menu tersebut.");
+      return;
+    }
     if (draft.cupSisa === null || draft.cupReject === null || draft.tunaiFisikLaci === null) {
       triggerPopup("Data Audit Belum Lengkap", "Isi Cup Sisa, Cup Reject, dan Total Uang Fisik di Laci sebelum mengirim laporan tutup shift.");
       return;
@@ -751,6 +888,12 @@ export default function Home() {
     if (!shiftValid) return;
 
     const shiftId = session.shiftId;
+    const cleanBumbuBawa: Record<string, number> = {};
+    const cleanBumbuSisa: Record<string, number> = {};
+    menus.forEach((menu) => {
+      cleanBumbuBawa[menu.sku_code] = draft.bumbuBawa?.[menu.sku_code] || 0;
+      cleanBumbuSisa[menu.sku_code] = draft.bumbuSisa?.[menu.sku_code] || 0;
+    });
     setShiftBusy(true);
     setShiftError("");
     try {
@@ -771,6 +914,8 @@ export default function Home() {
           date,
           branch_id: session.branchId,
           cashier_name: session.cashierName,
+          bumbu_bawa: cleanBumbuBawa,
+          bumbu_sisa: cleanBumbuSisa,
           cup_sisa: draft.cupSisa,
           cup_reject: draft.cupReject,
           op_lampu: draft.opLampu || 0,
@@ -979,12 +1124,20 @@ export default function Home() {
                   <div className="menu-list">
                     {menus.length ? menus.map((menu, index) => {
                       const qty = cart[menu.sku_code] || 0;
+                      const bawaSku = draft.bumbuBawa?.[menu.sku_code] ?? null;
+                      const soldSku = shiftSoldBySku[menu.sku_code] || 0;
+                      const remainingSku = bawaSku !== null ? Math.max(0, bawaSku - soldSku - qty) : null;
                       return (
                         <article className="menu-row" key={menu.sku_code}>
                           <div className="menu-ordinal">0{index + 1}</div>
                           <div className="menu-info">
                             <h3>{menu.menu_name}</h3>
-                            <p>Harga satuan per cup</p>
+                            <p>
+                              Harga satuan per cup
+                              {Boolean(session.shiftId) && remainingSku !== null && (
+                                <> · <span className={remainingSku <= 0 ? "stock-empty" : "stock-available"}>Sisa bumbu: {remainingSku}/{bawaSku}</span></>
+                              )}
+                            </p>
                             <strong>{rupiah(menu.sell_price)}</strong>
                           </div>
                           <div className="stepper" aria-label={`Jumlah ${menu.menu_name}`}>
@@ -1384,24 +1537,24 @@ export default function Home() {
             </div>
 
             <form className="shift-modal-body" onSubmit={handleOpen}>
-              <label className="form-field" htmlFor="open-branch">
-                <span className="field-label">Pilih cabang <span className="required-mark" aria-hidden="true">*</span></span>
-                <select
-                  id="open-branch"
-                  value={openBranch}
-                  onChange={(event) => setOpenBranch(event.target.value)}
-                  disabled={!branches.length || openBusy}
-                >
-                  {!branches.length && <option value="">Memuat cabang…</option>}
-                  {branches.map((item) => (
-                    <option value={item.branch_id} key={item.branch_id}>
-                      {item.branch_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
               <div className="field-grid two">
+                <label className="form-field" htmlFor="open-branch">
+                  <span className="field-label">Pilih cabang <span className="required-mark" aria-hidden="true">*</span></span>
+                  <select
+                    id="open-branch"
+                    value={openBranch}
+                    onChange={(event) => setOpenBranch(event.target.value)}
+                    disabled={!branches.length || openBusy}
+                  >
+                    {!branches.length && <option value="">Memuat cabang…</option>}
+                    {branches.map((item) => (
+                      <option value={item.branch_id} key={item.branch_id}>
+                        {item.branch_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <NumberField
                   id="opening-cash"
                   label="Modal awal kas"
@@ -1411,15 +1564,40 @@ export default function Home() {
                   required
                   hint="Uang modal di laci saat mulai."
                 />
-                <NumberField
-                  id="opening-cups"
-                  label="Cup Bawa"
-                  value={draft.cupBawa}
-                  onChange={(value) => updateDraft({ cupBawa: value })}
-                  required
-                  hint="Minimal 1 cup. Tanpa restock."
-                />
               </div>
+
+              <section className="modal-subsection bumbu-open-section" aria-labelledby="bumbu-open-title">
+                <div className="section-heading">
+                  <div>
+                    <h3 id="bumbu-open-title">Stok Bawa Awal per Menu (Bungkus Bumbu)</h3>
+                    <p>Masukkan jumlah bungkus bumbu yang dibawa untuk setiap varian menu.</p>
+                  </div>
+                  <span className="section-count">Total bumbu: {totalBumbuBawa} bks</span>
+                </div>
+                <div className="field-grid two">
+                  {openBranchMenus.map((menu) => (
+                    <NumberField
+                      key={menu.sku_code}
+                      id={`bumbu-bawa-${menu.sku_code}`}
+                      label={menu.menu_name}
+                      placeholder="Jumlah bungkus"
+                      value={draft.bumbuBawa?.[menu.sku_code] ?? null}
+                      onChange={(value) => updateBumbuBawa(menu.sku_code, value)}
+                      required
+                      hint={`Harga ${rupiah(menu.sell_price)} / cup`}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <NumberField
+                id="opening-cups"
+                label="Cup Bawa (Total Wadah Cup)"
+                value={draft.cupBawa}
+                onChange={(value) => updateDraft({ cupBawa: value, cupBawaManual: value !== null && value !== totalBumbuBawa })}
+                required
+                hint="Otomatis dijumlahkan dari total bungkus bumbu. Ubah jika membawa cup cadangan lebih banyak."
+              />
 
               {openError && (
                 <div className="message error-message" role="alert">
@@ -1468,15 +1646,72 @@ export default function Home() {
               <section className="modal-subsection" aria-labelledby="cup-title">
                 <div className="section-heading">
                   <div>
-                    <h3 id="cup-title">1. Audit cup</h3>
-                    <p>Hitung cup fisik tersisa dan bandingkan dengan penjualan POS.</p>
+                    <h3 id="cup-title">1. Audit stok bumbu per menu & cup</h3>
+                    <p>Hitung sisa bungkus bumbu setiap varian menu dan cup fisik tersisa, lalu bandingkan dengan penjualan POS.</p>
                   </div>
                   <span className="section-count">Cup Bawa: {draft.cupBawa ?? 0} cup</span>
                 </div>
+
                 <div className="field-grid two">
+                  {menus.map((menu) => {
+                    const bawaMenu = draft.bumbuBawa?.[menu.sku_code] ?? 0;
+                    return (
+                      <NumberField
+                        key={menu.sku_code}
+                        id={`bumbu-sisa-${menu.sku_code}`}
+                        label={`Sisa bumbu ${menu.menu_name}`}
+                        placeholder="Sisa bungkus"
+                        value={draft.bumbuSisa?.[menu.sku_code] ?? null}
+                        onChange={(value) => updateBumbuSisa(menu.sku_code, value)}
+                        required
+                        hint={`Bawa awal: ${bawaMenu} bungkus · Terjual POS: ${shiftSoldBySku[menu.sku_code] || 0}`}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="bumbu-table-wrap" role="region" aria-label="Tabel perbandingan stok bumbu per menu">
+                  <table className="bumbu-audit-table">
+                    <thead>
+                      <tr>
+                        <th>Menu</th>
+                        <th>Bawa Awal</th>
+                        <th>Sisa Akhir</th>
+                        <th>Fisik Terpakai</th>
+                        <th>Terjual di POS</th>
+                        <th>Selisih per Menu</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {menus.map((menu) => {
+                        const bawa = draft.bumbuBawa?.[menu.sku_code] ?? 0;
+                        const sisa = draft.bumbuSisa?.[menu.sku_code] ?? null;
+                        const fisik = sisa !== null ? bawa - sisa : null;
+                        const soldPos = shiftSoldBySku[menu.sku_code] || 0;
+                        const selisih = fisik !== null ? fisik - soldPos : null;
+                        return (
+                          <tr key={menu.sku_code}>
+                            <td>{menu.menu_name}</td>
+                            <td>{bawa}</td>
+                            <td>{sisa === null ? "—" : sisa}</td>
+                            <td>{fisik === null ? "—" : fisik}</td>
+                            <td>{soldPos}</td>
+                            <td className={selisih === null ? "" : selisih === 0 ? "cell-ok" : "cell-diff"}>
+                              {selisih === null ? "—" : selisih === 0 ? "0 (Sesuai)" : `${selisih > 0 ? "+" : ""}${selisih}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!bumbuSisaValid && <p className="field-error">Sisa bungkus bumbu tidak boleh melebihi jumlah Bawa Awal pada menu tersebut.</p>}
+
+                <div className="field-grid two cup-audit-fields">
                   <NumberField
                     id="cup-sisa"
-                    label="Cup Sisa"
+                    label="Cup Sisa (Wadah Cup)"
                     value={draft.cupSisa}
                     onChange={(value) => updateDraft({ cupSisa: value })}
                     required

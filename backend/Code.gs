@@ -9,9 +9,9 @@ var TABLES = {
   Master_Menu: ['sku_code','menu_name','sell_price','hpp_cost','is_active'],
   Master_Kasir: ['username','cashier_name','pin_code','is_active'],
   Log_Transaksi: ['trx_id','timestamp','date','branch_id','shift_id','cashier_name','rincian_menu','total_cups','total_amount','hpp_total','payment_method','items_json'],
-  Rekap_Shift: ['shift_id','date','branch_id','cashier_name','cup_bawa','cup_sisa','cup_reject','cup_fisik','cup_sistem','selisih_cup','modal_awal','penjualan_tunai','qris_sistem','op_lampu','op_kebersihan','op_penitipan','op_galon','op_lain_nominal','op_lain_detail','total_op','tunai_fisik_laci','daily_wage_snapshot','daily_rent_snapshot','status','opened_at'],
+  Rekap_Shift: ['shift_id','date','branch_id','cashier_name','cup_bawa','cup_sisa','cup_reject','cup_fisik','cup_sistem','selisih_cup','modal_awal','penjualan_tunai','qris_sistem','op_lampu','op_kebersihan','op_penitipan','op_galon','op_lain_nominal','op_lain_detail','total_op','tunai_fisik_laci','daily_wage_snapshot','daily_rent_snapshot','status','opened_at','bumbu_bawa_json','bumbu_sisa_json'],
   Laporan_Admin: ['date','branch_id','modal_awal','penjualan_tunai','qris_sistem','omset_penjualan','total_operasional','kas_sistem_tanpa_modal','total_penerimaan','gaji_karyawan','laba_kotor','sewa_lahan','total_hpp','laba_bersih','kas_laci_seharusnya','tunai_fisik_laci','selisih_kas_laci','status_audit'],
-  Laporan_Menu: ['date','branch_id','shift_id','sku_code','menu_name','qty_cup','omset','total_hpp','laba_kotor']
+  Laporan_Menu: ['date','branch_id','shift_id','sku_code','menu_name','bumbu_bawa','bumbu_sisa','bumbu_fisik_terpakai','qty_pos','selisih_bumbu','omset','total_hpp','laba_kotor']
 };
 
 function setupDatabase() {
@@ -91,7 +91,8 @@ function setupDatabase() {
   shiftsSheet.getRange('K:R').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
   shiftsSheet.getRange('T:W').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
   reportSheet.getRange('C:Q').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
-  menuReportSheet.getRange('G:I').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
+  menuReportSheet.getRange('F:J').setNumberFormat('#,##0;(#,##0)');
+  menuReportSheet.getRange('K:M').setNumberFormat('"Rp"#,##0;("Rp"#,##0)');
 
   repairFormulas();
 
@@ -245,6 +246,26 @@ function shiftRow_(shifts, id) {
   return 0;
 }
 
+function parseJsonMap_(raw) {
+  if (!raw) return {};
+  try {
+    var obj = typeof raw === 'object' ? raw : JSON.parse(String(raw));
+    return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function sanitizeBumbuMap_(rawMap, label) {
+  var result = {};
+  if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return result;
+  Object.keys(rawMap).forEach(function(sku) {
+    var cleanSku = safeId_(sku, 'sku_code');
+    result[cleanSku] = whole_(rawMap[sku], label + ' ' + cleanSku);
+  });
+  return result;
+}
+
 function openShift_(p) {
   var s = p.shift || p;
   var id = safeId_(s.shift_id, 'shift_id');
@@ -254,17 +275,28 @@ function openShift_(p) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Tanggal shift tidak valid.');
   var today = Utilities.formatDate(new Date(), database_().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
   if (date !== today) throw new Error('Shift baru hanya dapat dibuka untuk tanggal hari ini.');
-  var bawa = whole_(s.cup_bawa, 'cup_bawa');
+  var bumbuBawa = sanitizeBumbuMap_(s.bumbu_bawa, 'bumbu_bawa');
+  var bumbuKeys = Object.keys(bumbuBawa);
+  var totalBumbuBawa = bumbuKeys.reduce(function(sum, k) { return sum + bumbuBawa[k]; }, 0);
+  if (bumbuKeys.length > 0 && totalBumbuBawa < 1) {
+    throw new Error('Total stok bumbu bawa awal minimal 1 bungkus.');
+  }
+  var bawa = s.cup_bawa !== undefined && s.cup_bawa !== null && s.cup_bawa !== ''
+    ? whole_(s.cup_bawa, 'cup_bawa')
+    : totalBumbuBawa;
   if (bawa < 1) throw new Error('Cup Bawa minimal 1.');
+  if (bumbuKeys.length > 0 && bawa < totalBumbuBawa) {
+    throw new Error('Cup Bawa tidak boleh kurang dari total bungkus bumbu yang dibawa.');
+  }
   var modal = money_(s.modal_awal, 'modal_awal');
   var shifts = database_().getSheetByName('Rekap_Shift');
   var found = shiftRow_(shifts, id);
   if (found) {
-    var existing = shifts.getRange(found,2,1,24).getValues()[0];
+    var existing = shifts.getRange(found,2,1,26).getValues()[0];
     if (dateStr_(existing[0]) !== date || String(existing[1]) !== branchId || Number(existing[3]) !== bawa || Number(existing[9]) !== modal) {
       throw new Error('Data pembukaan shift berbeda dari yang tersimpan.');
     }
-    return {ok:true, shift_id:id, opened:true, closed:String(existing[22]) === 'CLOSED'};
+    return {ok:true, shift_id:id, opened:true, closed:String(existing[22]) === 'CLOSED', bumbu_bawa:parseJsonMap_(existing[24])};
   }
   if (shifts.getLastRow() > 1) {
     var openRows = shifts.getRange(2,1,shifts.getLastRow()-1,24).getValues();
@@ -276,20 +308,21 @@ function openShift_(p) {
   }
   var nextRow = shifts.getLastRow() + 1;
   shifts.getRange(nextRow, 2).setNumberFormat('@');
-  shifts.getRange(nextRow, 1, 1, 25).setValues([[
+  shifts.getRange(nextRow, 1, 1, 27).setValues([[
     id, date, branchId, safeText_(s.cashier_name,'cashier_name',80),
     bawa, '', '', '', '', '',
     modal, 0, 0, 0, 0, 0, 0, 0, '', 0, '',
-    branch.wage, branch.rent, 'OPEN', new Date()
+    branch.wage, branch.rent, 'OPEN', new Date(),
+    bumbuKeys.length ? JSON.stringify(bumbuBawa) : '', ''
   ]]);
   setShiftFormulas_(shifts, nextRow);
-  return {ok:true, shift_id:id, opened:true, closed:false};
+  return {ok:true, shift_id:id, opened:true, closed:false, bumbu_bawa:bumbuBawa};
 }
 
 function shiftTotals_(id) {
   var sheet = database_().getSheetByName('Log_Transaksi');
   var rows = sheet.getLastRow() > 1 ? sheet.getRange(2,1,sheet.getLastRow()-1,12).getValues() : [];
-  var totals = {cups:0, cash:0, qris:0, revenue:0};
+  var totals = {cups:0, cash:0, qris:0, revenue:0, by_sku:{}};
   rows.forEach(function(row) {
     if (String(row[4]) !== id) return;
     var amount = Number(row[8]) || 0;
@@ -297,6 +330,16 @@ function shiftTotals_(id) {
     totals.revenue += amount;
     if (String(row[10]).toUpperCase() === 'QRIS') totals.qris += amount;
     else totals.cash += amount;
+    try {
+      var items = JSON.parse(String(row[11] || '[]'));
+      if (Array.isArray(items)) {
+        items.forEach(function(it) {
+          if (it && it.sku_code) {
+            totals.by_sku[it.sku_code] = (totals.by_sku[it.sku_code] || 0) + (Number(it.qty) || 0);
+          }
+        });
+      }
+    } catch (e) {}
   });
   return totals;
 }
@@ -317,7 +360,7 @@ function getShift_(p) {
     }
   }
   if (!row) return {ok:true, found:false};
-  var data = shifts.getRange(row,1,1,25).getValues()[0];
+  var data = shifts.getRange(row,1,1,27).getValues()[0];
   if (String(data[2]) !== branchId) throw new Error('Shift bukan milik cabang ini.');
   return {
     ok:true,
@@ -326,6 +369,8 @@ function getShift_(p) {
     closed:String(data[23]) === 'CLOSED',
     cup_bawa:Number(data[4]),
     modal_awal:Number(data[10]),
+    bumbu_bawa:parseJsonMap_(data[25]),
+    bumbu_sisa:parseJsonMap_(data[26]),
     totals:shiftTotals_(String(data[0]))
   };
 }
@@ -337,6 +382,7 @@ function createTransactions_(p) {
   var known = idSet_(sheet);
   var pending = {};
   var rows = [];
+  var batchSkuCounts = {};
   var duplicates = [];
   items.forEach(function(t) {
     var id = safeId_(t.trx_id, 'trx_id');
@@ -348,8 +394,12 @@ function createTransactions_(p) {
     var shiftSheet = database_().getSheetByName('Rekap_Shift');
     var shiftRow = shiftRow_(shiftSheet, shiftId);
     if (!shiftRow) throw new Error('Buka shift sebelum mencatat transaksi.');
-    var shift = shiftSheet.getRange(shiftRow,1,1,25).getValues()[0];
+    var shift = shiftSheet.getRange(shiftRow,1,1,27).getValues()[0];
     if (String(shift[2]) !== branchId || String(shift[23]) !== 'OPEN') throw new Error('Shift tidak aktif.');
+    var bumbuBawa = parseJsonMap_(shift[25]);
+    var currentTotals = shiftTotals_(shiftId);
+    var alreadyBySku = currentTotals.by_sku || {};
+    if (!batchSkuCounts[shiftId]) batchSkuCounts[shiftId] = {};
     var cartItems = t.items;
     if (!Array.isArray(cartItems) || !cartItems.length || cartItems.length > 100) throw new Error('Keranjang transaksi kosong atau terlalu besar.');
     var hpp = 0, total = 0, cups = 0, seen = {}, snapshots = [], summaryParts = [];
@@ -359,6 +409,12 @@ function createTransactions_(p) {
       seen[sku] = true;
       var n = whole_(item.qty, 'qty');
       if (n < 1 || !b.menus[sku]) throw new Error('Menu tidak aktif atau jumlah tidak valid: ' + sku);
+      if (bumbuBawa[sku] !== undefined) {
+        var soldSku = (alreadyBySku[sku] || 0) + (batchSkuCounts[shiftId][sku] || 0);
+        if (soldSku + n > Number(bumbuBawa[sku])) {
+          throw new Error('Stok bumbu ' + b.menus[sku].name + ' melebihi stok bawa (' + bumbuBawa[sku] + ' bungkus).');
+        }
+      }
       var amount = n * b.menus[sku].price;
       var itemHpp = n * b.menus[sku].hpp;
       total += amount;
@@ -375,7 +431,7 @@ function createTransactions_(p) {
         hpp_total:itemHpp
       });
     });
-    var already = shiftTotals_(shiftId).cups;
+    var already = currentTotals.cups;
     var inBatch = rows.filter(function(x) { return x[4] === shiftId; }).reduce(function(sum,x) { return sum + Number(x[7]); },0);
     if (already + inBatch + cups > Number(shift[4])) throw new Error('Jumlah cup melebihi Cup Bawa.');
     if (!Number.isSafeInteger(total) || !Number.isSafeInteger(hpp)) throw new Error('Nominal transaksi terlalu besar.');
@@ -385,6 +441,9 @@ function createTransactions_(p) {
     var time = t.timestamp ? new Date(t.timestamp) : new Date();
     if (isNaN(time.getTime())) throw new Error('timestamp tidak valid.');
     var saleDate = dateStr_(shift[1]);
+    snapshots.forEach(function(sn) {
+      batchSkuCounts[shiftId][sn.sku_code] = (batchSkuCounts[shiftId][sn.sku_code] || 0) + sn.qty;
+    });
     rows.push([
       id, time, saleDate, branchId, shiftId,
       safeText_(t.cashier_name,'cashier_name',80),
@@ -409,11 +468,20 @@ function closeShiftV2_(p) {
   var ss = database_(), shifts = ss.getSheetByName('Rekap_Shift');
   var row = shiftRow_(shifts, id);
   if (!row) throw new Error('Shift belum dibuka.');
-  var values = shifts.getRange(row,1,1,25).getValues()[0];
+  var values = shifts.getRange(row,1,1,27).getValues()[0];
   var shiftDate = dateStr_(values[1]);
   if (String(values[2]) !== branchId) throw new Error('Shift bukan milik cabang ini.');
+  var storedBumbuBawa = parseJsonMap_(values[25]);
+  var inputBumbuBawa = sanitizeBumbuMap_(s.bumbu_bawa, 'bumbu_bawa');
+  var bumbuBawa = Object.keys(storedBumbuBawa).length ? storedBumbuBawa : inputBumbuBawa;
+  var bumbuSisa = sanitizeBumbuMap_(s.bumbu_sisa, 'bumbu_sisa');
+  Object.keys(bumbuSisa).forEach(function(sku) {
+    if (bumbuBawa[sku] !== undefined && bumbuSisa[sku] > Number(bumbuBawa[sku])) {
+      throw new Error('Sisa bumbu ' + sku + ' melebihi stok bawa awal (' + bumbuBawa[sku] + ').');
+    }
+  });
   if (String(values[23]) === 'CLOSED') {
-    refreshMenuReport_(ss,id,shiftDate,branchId);
+    refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,parseJsonMap_(values[26] || s.bumbu_sisa));
     return {ok:true, duplicate:true, shift_id:id, report_row:ensureReport_(ss,shiftDate,branchId)};
   }
   if (String(values[23]) !== 'OPEN') throw new Error('Status shift tidak valid.');
@@ -443,15 +511,26 @@ function closeShiftV2_(p) {
   shifts.getRange(row,12,1,2).setValues([[totals.cash,totals.qris]]);
   shifts.getRange(row,14,1,8).setValues([[lampu,kebersihan,penitipan,galon,other,names.join('; '),op,physical]]);
   shifts.getRange(row,24).setValue('CLOSED');
+  if (Object.keys(bumbuBawa).length || Object.keys(bumbuSisa).length) {
+    shifts.getRange(row,26,1,2).setValues([[
+      Object.keys(bumbuBawa).length ? JSON.stringify(bumbuBawa) : String(values[25] || ''),
+      Object.keys(bumbuSisa).length ? JSON.stringify(bumbuSisa) : ''
+    ]]);
+  }
   setShiftFormulas_(shifts,row);
-  refreshMenuReport_(ss,id,shiftDate,branchId);
+  refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,bumbuSisa);
   return {ok:true, shift_id:id, totals:totals, report_row:ensureReport_(ss,shiftDate,branchId)};
 }
 
-function refreshMenuReport_(ss,shiftId,date,branchId) {
+function refreshMenuReport_(ss,shiftId,date,branchId,bumbuBawa,bumbuSisa) {
   var report = ss.getSheetByName('Laporan_Menu');
   var log = ss.getSheetByName('Log_Transaksi');
   if (!report) throw new Error('Jalankan setupDatabase() untuk membuat Laporan_Menu.');
+  var headers = TABLES.Laporan_Menu;
+  if (report.getLastRow() >= 1 && report.getRange(1, 1, 1, headers.length).getValues &&
+      report.getRange(1, 1, 1, headers.length).getValues()[0].join('|') !== headers.join('|')) {
+    report.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
   if (report.getLastRow() > 1) {
     var ids = report.getRange(2,3,report.getLastRow()-1,1).getValues();
     if (ids.some(function(x) { return String(x[0]) === shiftId; })) return;
@@ -469,14 +548,35 @@ function refreshMenuReport_(ss,shiftId,date,branchId) {
       totals[sku].hpp += Number(item.hpp_total);
     });
   });
-  var result = Object.keys(totals).map(function(sku) {
-    var x = totals[sku];
-    return [date,branchId,shiftId,sku,x.name,x.qty,x.revenue,x.hpp,x.revenue-x.hpp];
+  var menuCatalog = {};
+  try {
+    var branchCfg = configMap_()[branchId];
+    if (branchCfg && branchCfg.menus) menuCatalog = branchCfg.menus;
+  } catch (e) {}
+  var bMap = bumbuBawa || {};
+  var sMap = bumbuSisa || {};
+  var allSkus = {};
+  Object.keys(menuCatalog).forEach(function(k) { allSkus[k] = true; });
+  Object.keys(bMap).forEach(function(k) { allSkus[k] = true; });
+  Object.keys(sMap).forEach(function(k) { allSkus[k] = true; });
+  Object.keys(totals).forEach(function(k) { allSkus[k] = true; });
+
+  var result = Object.keys(allSkus).map(function(sku) {
+    var sold = totals[sku] || {name:(menuCatalog[sku] ? menuCatalog[sku].name : sku), qty:0, revenue:0, hpp:0};
+    var bawaQty = bMap[sku] !== undefined ? Number(bMap[sku]) : sold.qty;
+    var sisaQty = sMap[sku] !== undefined ? Number(sMap[sku]) : 0;
+    var fisikTerpakai = bawaQty - sisaQty;
+    var selisihBumbu = fisikTerpakai - sold.qty;
+    return [
+      date, branchId, shiftId, sku, sold.name,
+      bawaQty, sisaQty, fisikTerpakai, sold.qty, selisihBumbu,
+      sold.revenue, sold.hpp, sold.revenue - sold.hpp
+    ];
   });
   if (result.length) {
     var startRow = report.getLastRow() + 1;
     report.getRange(startRow, 1, result.length, 1).setNumberFormat('@');
-    report.getRange(startRow, 1, result.length, 9).setValues(result);
+    report.getRange(startRow, 1, result.length, 13).setValues(result);
   }
 }
 
@@ -558,7 +658,7 @@ function reportFormulas_(r) {
     f('C'+r+'+H'+r),
     f(sh('U')),
     f('P'+r+'-O'+r),
-    f('IF(AND(Q'+r+'=0'+sep+sh('J')+'=0)'+sep+'"SESUAI"'+sep+'"SELISIH")')
+    f('IF(AND(Q'+r+'=0'+sep+sh('J')+'=0'+sep+'COUNTIFS(Laporan_Menu!$A$2:$A'+sep+'$A'+r+sep+'Laporan_Menu!$B$2:$B'+sep+'$B'+r+sep+'Laporan_Menu!$J$2:$J'+sep+'"<>0")=0)'+sep+'"SESUAI"'+sep+'"SELISIH")')
   ];
 }
 

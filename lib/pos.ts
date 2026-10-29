@@ -51,6 +51,7 @@ export type SaleRecord = {
   amount: number;
   paymentMethod: PaymentMethod;
   synced: boolean;
+  items?: { sku_code: string; qty: number }[];
 };
 
 export type OtherExpense = { id: string; name: string; amount: number | null };
@@ -58,6 +59,9 @@ export type OtherExpense = { id: string; name: string; amount: number | null };
 export type ShiftDraft = {
   shiftId: string;
   cupBawa: number | null;
+  cupBawaManual?: boolean;
+  bumbuBawa: Record<string, number | null>;
+  bumbuSisa: Record<string, number | null>;
   cupSisa: number | null;
   cupReject: number | null;
   modalAwal: number | null;
@@ -75,6 +79,9 @@ export function emptyShiftDraft(): ShiftDraft {
   return {
     shiftId: "",
     cupBawa: null,
+    cupBawaManual: false,
+    bumbuBawa: {},
+    bumbuSisa: {},
     cupSisa: null,
     cupReject: null,
     modalAwal: null,
