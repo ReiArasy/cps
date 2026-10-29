@@ -433,7 +433,8 @@ function closeShiftV2_(p) {
     });
   }
   var op = lampu + kebersihan + penitipan + galon + other;
-  if (op > totals.cash) throw new Error('Operasional melebihi penjualan tunai shift.');
+  var modal = Number(values[10]) || 0;
+  if (op > modal + totals.cash) throw new Error('Operasional melebihi total uang tunai di laci (Modal Awal + Penjualan Tunai).');
   var physical = money_(s.tunai_fisik_laci,'tunai_fisik_laci');
   var mode = String(s.cash_count_mode || 'FULL_DRAWER');
   if (mode !== 'FULL_DRAWER') throw new Error('Kas fisik harus mencakup seluruh isi laci termasuk modal awal.');

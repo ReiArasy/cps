@@ -332,12 +332,13 @@ export default function Home() {
     + (draft.opGalon || 0) + draft.otherExpenses.reduce((sum, item) => sum + (item.amount || 0), 0);
   const qrisNet = shiftSales.filter((sale) => sale.paymentMethod === "QRIS").reduce((sum, sale) => sum + sale.amount, 0);
   const cashSales = shiftRevenue - qrisNet;
+  const availableCashForOp = (draft.modalAwal || 0) + cashSales;
   const cashIntake = cashSales - operationTotal;
   const expectedDrawer = draft.modalAwal !== null ? draft.modalAwal + cashIntake : null;
   const cashDifference = expectedDrawer !== null && draft.tunaiFisikLaci !== null ? draft.tunaiFisikLaci - expectedDrawer : null;
   const requiredShiftValues = [draft.cupBawa, draft.cupSisa, draft.cupReject, draft.modalAwal, draft.tunaiFisikLaci];
   const shiftValid = requiredShiftValues.every((value) => value !== null)
-    && physicalCups !== null && physicalCups >= 0 && (draft.cupBawa || 0) >= 1 && operationTotal <= cashSales
+    && physicalCups !== null && physicalCups >= 0 && (draft.cupBawa || 0) >= 1 && operationTotal <= availableCashForOp
     && draft.otherExpenses.every((item) => item.name.trim() && item.amount !== null)
     && closeConfirmed && pendingToday === 0 && online && !!session?.shiftId && !closed && !shiftBusy;
 
@@ -414,7 +415,7 @@ export default function Home() {
         }
       }
       if (!result.valid) {
-        setLoginError("Username atau PIN kasir tidak sesuai. Akun kasir hanya dikelola di Google Sheets.");
+        setLoginError("Username atau PIN kasir tidak sesuai");
         return;
       }
       if (!result.session_token || !result.expires_at) {
@@ -735,8 +736,8 @@ export default function Home() {
       triggerPopup("Hitungan Cup Tidak Valid", "Jumlah Cup Sisa + Cup Reject tidak boleh melebihi Cup Bawa awal.");
       return;
     }
-    if (operationTotal > cashSales) {
-      triggerPopup("Operasional Melebihi Tunai", "Total pengeluaran operasional tidak boleh melebihi penjualan tunai pada shift ini.");
+    if (operationTotal > availableCashForOp) {
+      triggerPopup("Operasional Melebihi Kas Laci", "Total pengeluaran operasional tidak boleh melebihi total uang tunai di laci (Modal Awal Kas + Penjualan Tunai).");
       return;
     }
     if (!draft.otherExpenses.every((item) => item.name.trim() && item.amount !== null)) {
@@ -799,20 +800,14 @@ export default function Home() {
     return (
       <main className="login-shell">
         <div className="login-intro">
-          <Brand />
-          <div className="login-story">
-            <h2>Pesanan masuk.<br />Hitungan rapi.</h2>
-            <p>Kasir dan rekonsiliasi shift Cuanki Cep Bewok Express dalam satu ruang kerja.</p>
-          </div>
-          <div className="login-foot">Akun terverifikasi · Rekap shift otomatis ke Google Sheets.</div>
+          <LogoBadge className="login-hero-logo" width={340} />
         </div>
         <div className="login-panel-wrap">
           <form className="login-panel" onSubmit={handleLogin}>
             <div className="login-mobile-brand"><Brand /></div>
             <div className="login-heading">
-              <LogoBadge className="login-symbol" width={184} />
-              <h1>Mulai sesi kasir</h1>
-              <p>Masuk menggunakan akun kasir terdaftar untuk mengakses aplikasi.</p>
+              <h1>Mulai Kasir</h1>
+              <p>Masuk menggunakan akun kasir terdaftar</p>
             </div>
             <label className="form-field" htmlFor="cashier-username">
               <span className="field-label">Username kasir</span>
@@ -820,7 +815,7 @@ export default function Home() {
                 id="cashier-username"
                 autoComplete="username"
                 maxLength={60}
-                placeholder="Contoh: kasir1"
+                placeholder="Masukkan Username anda"
                 value={loginUsername}
                 onChange={(event) => setLoginUsername(event.target.value)}
                 disabled={loginBusy}
@@ -834,7 +829,7 @@ export default function Home() {
                 inputMode="numeric"
                 autoComplete="current-password"
                 maxLength={8}
-                placeholder="4–8 digit angka"
+                placeholder="Masukkan Pin Anda"
                 value={loginPin}
                 onChange={(event) => setLoginPin(event.target.value.replace(/\D/g, ""))}
                 disabled={loginBusy}
@@ -846,7 +841,6 @@ export default function Home() {
             <button className="primary-button login-submit" type="submit" disabled={loginBusy}>
               <span>{loginBusy ? "Memverifikasi akun…" : "Masuk ke aplikasi"}</span><ArrowRight size={19} />
             </button>
-            <p className="login-help">Pembuatan dan pengelolaan akun kasir hanya dilakukan oleh admin di tab <strong>Master_Kasir</strong> pada Google Sheets.</p>
           </form>
         </div>
       </main>
@@ -1507,7 +1501,7 @@ export default function Home() {
                 <div className="section-heading">
                   <div>
                     <h3 id="operation-title">2. Operasional harian</h3>
-                    <p>Biaya operasional yang diambil dari uang tunai laci pada shift ini.</p>
+                    <p>Biaya operasional yang diambil dari uang tunai di laci (Penjualan Tunai + Modal Awal Kas).</p>
                   </div>
                 </div>
                 <div className="field-grid two">
