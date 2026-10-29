@@ -571,11 +571,11 @@ function configMap_() {
   var menuRows = menusSheet.getLastRow() > 1 ? menusSheet.getRange(2, 1, menusSheet.getLastRow() - 1, 5).getValues() : [];
   var activeMenus = {};
   menuRows.forEach(function(m) {
-    if (!m[0] || (m[4] !== true && String(m[4]).toUpperCase() !== 'TRUE')) return;
+    if (!m[0] || !String(m[0]).trim() || !isActiveCell_(m[4])) return;
     var sku = safeId_(m[0], 'sku_code');
-    var name = safeText_(m[1], 'menu_name', 80);
-    var price = money_(m[2], 'sell_price');
-    var hpp = money_(m[3], 'hpp_cost');
+    var name = safeText_(m[1] || m[0], 'menu_name', 80);
+    var price = cleanMoney_(m[2], 'sell_price');
+    var hpp = cleanMoney_(m[3] || 0, 'hpp_cost');
     if (price <= 0) throw new Error('sell_price harus lebih besar dari 0 untuk ' + sku);
     if (activeMenus[sku]) throw new Error('SKU ganda di Master_Menu: ' + sku);
     activeMenus[sku] = {name:name, price:price, hpp:hpp};
@@ -584,11 +584,11 @@ function configMap_() {
   var branchRows = branchesSheet.getLastRow() > 1 ? branchesSheet.getRange(2, 1, branchesSheet.getLastRow() - 1, 5).getValues() : [];
   var map = {};
   branchRows.forEach(function(b) {
-    if (!b[0] || (b[4] !== true && String(b[4]).toUpperCase() !== 'TRUE')) return;
+    if (!b[0] || !String(b[0]).trim() || !isActiveCell_(b[4])) return;
     var id = safeId_(b[0], 'branch_id');
-    var name = safeText_(b[1], 'branch_name', 80);
-    var wage = money_(b[2], 'daily_wage');
-    var rent = money_(b[3], 'daily_rent');
+    var name = safeText_(b[1] || b[0], 'branch_name', 80);
+    var wage = cleanMoney_(b[2] || 0, 'daily_wage');
+    var rent = cleanMoney_(b[3] || 0, 'daily_rent');
     if (map[id]) throw new Error('branch_id ganda di Master_Cabang: ' + id);
     map[id] = {name:name, wage:wage, rent:rent, menus:activeMenus};
   });
@@ -598,19 +598,35 @@ function configMap_() {
 function cashiersMap_() {
   var sh = database_().getSheetByName('Master_Kasir');
   if (!sh) throw new Error('Tab Master_Kasir belum ada. Jalankan setupDatabase() di Apps Script terlebih dahulu.');
-  var rows = sh.getLastRow() > 1 ? sh.getRange(2,1,sh.getLastRow()-1,4).getValues() : [];
+  var last = sh.getLastRow();
+  var rows = last > 1 ? sh.getRange(2,1,last-1,4).getValues() : [];
+  var displayRows = last > 1 ? sh.getRange(2,1,last-1,4).getDisplayValues() : [];
   var byUsername = {}, byName = {};
-  rows.forEach(function(x) {
-    if (!x[0] || (x[3] !== true && String(x[3]).toUpperCase() !== 'TRUE')) return;
+  rows.forEach(function(x, i) {
+    if (!x[0] || !String(x[0]).trim() || !isActiveCell_(x[3])) return;
     var username = safeId_(x[0], 'username');
-    var name = safeText_(x[1], 'cashier_name', 80);
-    var pin = String(x[2]).trim();
-    if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN kasir ' + username + ' harus 4-8 digit.');
+    var name = safeText_(x[1] || x[0], 'cashier_name', 80);
+    var rawPin = (displayRows[i] && displayRows[i][2]) ? String(displayRows[i][2]).trim() : String(x[2]).trim();
+    var pin = rawPin.replace(/^'+/, '');
+    if (!/^\d{4,8}$/.test(pin)) throw new Error('PIN kasir ' + username + ' harus 4-8 digit angka.');
     var record = {username:username, name:name, pin:pin};
     byUsername[username.toLowerCase()] = record;
     byName[name.toLowerCase()] = record;
   });
   return {byUsername:byUsername, byName:byName};
+}
+
+function isActiveCell_(v) {
+  if (v === false) return false;
+  var s = String(v === undefined || v === null ? '' : v).trim().toUpperCase();
+  if (s === 'FALSE' || s === '0' || s === 'NO' || s === 'TIDAK' || s === 'NONAKTIF') return false;
+  return true;
+}
+
+function cleanMoney_(v, label) {
+  if (typeof v === 'number') return money_(Math.round(v), label);
+  var digits = String(v === undefined || v === null ? '' : v).replace(/[^0-9]/g, '');
+  return money_(digits ? Number(digits) : 0, label);
 }
 
 function dateStr_(v) {
@@ -638,7 +654,7 @@ function idSet_(sh) {
 }
 function safeId_(v,label) {
   var s = String(v || '').trim();
-  if (!/^[A-Za-z0-9_-]{1,80}$/.test(s)) throw new Error(label + ' tidak valid.');
+  if (!/^[A-Za-z0-9_.\- ]{1,80}$/.test(s)) throw new Error(label + ' tidak valid.');
   return s;
 }
 function safeText_(v,label,max) {

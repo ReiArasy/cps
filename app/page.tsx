@@ -143,15 +143,15 @@ export default function Home() {
       writeLocal(CONFIG_KEY, live);
       setBranches(live);
       setConfigCached(false);
-      setOpenBranch((current) => current || live[0]?.branch_id || "");
+      setOpenBranch((current) => (live.some((b) => b.branch_id === current) ? current : live[0]?.branch_id || ""));
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Daftar cabang & menu gagal dimuat dari Sheets.";
+      setConfigError(errMsg);
       const cached = readLocal<Branch[]>(CONFIG_KEY, []);
       if (cached.length) {
         setBranches(cached);
         setConfigCached(true);
         setOpenBranch((current) => current || cached[0].branch_id);
-      } else {
-        setConfigError(error instanceof Error ? error.message : "Daftar cabang gagal dimuat.");
       }
     }
   }, []);
@@ -347,6 +347,9 @@ export default function Home() {
   function navigateTab(nextTab: TabKey) {
     setTab(nextTab);
     setSidebarOpen(false);
+    if (nextTab === "pos" || nextTab === "shift") {
+      void loadConfig();
+    }
   }
 
   function stepQty(sku: string, delta: number) {
@@ -436,6 +439,7 @@ export default function Home() {
       sessionRef.current = next;
       setSession(next);
       setLoginPin("");
+      void loadConfig();
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "Koneksi tidak tersedia. Coba lagi saat online.");
     } finally {
@@ -942,11 +946,13 @@ export default function Home() {
             </div>
             <div className="desktop-status">
               <span>{session.shiftId ? `${shiftCups} cup terjual pada shift ini` : "Shift belum dibuka"}</span>
+              <button type="button" onClick={() => void loadConfig()} disabled={!online}><RefreshCw size={15} /> Muat ulang Sheets</button>
               {pendingCurrentBranch > 0 && <button type="button" onClick={() => void flushQueue()} disabled={!online || syncing}><RefreshCw size={16} /> Kirim ulang</button>}
             </div>
           </div>
 
           {notice && <div className="message success-message" role="status"><Check size={18} /><span>{notice}</span><button type="button" aria-label="Tutup pesan" onClick={() => setNotice("")}><X size={17} /></button></div>}
+          {configError && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>Gagal memuat pembaruan Google Sheets ({configError}). Pastikan Code.gs terbaru sudah di-Deploy sebagai <strong>New version</strong> di Apps Script.</span><button type="button" onClick={() => void loadConfig()}>Muat ulang</button></div>}
           {syncError && pendingCurrentBranch > 0 && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>{syncError}. {pendingCurrentBranch} transaksi tetap tersimpan di perangkat.</span><button type="button" onClick={() => void flushQueue()} disabled={!online || syncing}>Kirim ulang</button></div>}
           {!online && <div className="message offline-message" role="status"><WifiOff size={18} /><span>Offline. Pesanan baru akan disimpan di perangkat lalu dikirim saat koneksi pulih.</span></div>}
 
@@ -965,6 +971,7 @@ export default function Home() {
                       onClick={() => {
                         setTab("shift");
                         setOpenError("");
+                        void loadConfig();
                         setOpenModalVisible(true);
                       }}
                     >
@@ -1103,6 +1110,7 @@ export default function Home() {
                   className="primary-button shift-center-cta"
                   onClick={() => {
                     setOpenError("");
+                    void loadConfig();
                     setOpenModalVisible(true);
                   }}
                 >
