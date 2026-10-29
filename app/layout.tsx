@@ -7,10 +7,16 @@ const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit", display: 
 
 export const metadata: Metadata = {
   title: "Cuanki POS",
-  description: "Kasir dan rekonsiliasi shift Cuanki multi-cabang",
+  description: "Kasir dan rekonsiliasi shift Cuanki Cep Bewok Express",
   applicationName: "Cuanki POS",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Cuanki POS" },
-  icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
+  icons: {
+    icon: [
+      { url: "/cuanki-icon-192.png?v=4", sizes: "192x192", type: "image/png" },
+      { url: "/cuanki-icon-512.png?v=4", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/cuanki-icon-192.png?v=4", sizes: "192x192", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {

@@ -96,6 +96,7 @@ export default function Home() {
   const [openBranch, setOpenBranch] = useState("");
   const [openModalVisible, setOpenModalVisible] = useState(false);
   const [closeModalVisible, setCloseModalVisible] = useState(false);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [closeConfirmed, setCloseConfirmed] = useState(false);
   const [cart, setCart] = useState<Quantities>({});
   const [openBusy, setOpenBusy] = useState(false);
@@ -215,21 +216,24 @@ export default function Home() {
   }, [loadConfig]);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js").then((reg) => { void reg.update(); }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
-    if (!popup && !openModalVisible && !closeModalVisible && !sidebarOpen) return;
+    if (!popup && !openModalVisible && !closeModalVisible && !paymentModalVisible && !sidebarOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (popup) { setPopup(null); return; }
+      if (paymentModalVisible) { setPaymentModalVisible(false); return; }
       if (openModalVisible) { setOpenModalVisible(false); return; }
       if (closeModalVisible) { setCloseModalVisible(false); return; }
       if (sidebarOpen) { setSidebarOpen(false); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [popup, openModalVisible, closeModalVisible, sidebarOpen]);
+  }, [popup, openModalVisible, closeModalVisible, paymentModalVisible, sidebarOpen]);
 
   useEffect(() => {
     if (!session) return;
@@ -567,6 +571,7 @@ export default function Home() {
     setCloseConfirmed(false);
     setOpenModalVisible(false);
     setCloseModalVisible(false);
+    setPaymentModalVisible(false);
     setSidebarOpen(false);
     setCart({});
     setPayment("TUNAI");
@@ -582,6 +587,41 @@ export default function Home() {
     setPopup(null);
   }
 
+  function openPaymentModal() {
+    if (!session?.shiftId || !session.branchId) {
+      triggerPopup(
+        "Shift Belum Dibuka",
+        "Kasir tidak dapat mencatat transaksi sebelum membuka shift. Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu.",
+        "Buka Shift",
+        () => {
+          setOpenError("");
+          void loadConfig();
+          setOpenModalVisible(true);
+          setPopup(null);
+        },
+      );
+      return;
+    }
+    if (closed) {
+      triggerPopup(
+        "Shift Sudah Ditutup",
+        "Shift ini sudah ditutup dan tidak dapat menerima transaksi baru. Silakan Log Out dari menu Akun.",
+        "Ke Menu Akun",
+        () => { setTab("account"); setPopup(null); },
+      );
+      return;
+    }
+    if (!cartCups || !menus.length) {
+      triggerPopup("Keranjang Masih Kosong", "Pilih minimal 1 cup menu cuanki sebelum melanjutkan ke metode pembayaran.");
+      return;
+    }
+    if (shiftCups + cartCups > (draft.cupBawa || 0)) {
+      triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
+      return;
+    }
+    setPaymentModalVisible(true);
+  }
+
   function handlePay() {
     if (!session?.shiftId || !session.branchId) {
       triggerPopup(
@@ -589,8 +629,8 @@ export default function Home() {
         "Kasir tidak dapat mencatat transaksi sebelum membuka shift. Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu.",
         "Buka Shift",
         () => {
-          setTab("shift");
           setOpenError("");
+          void loadConfig();
           setOpenModalVisible(true);
           setPopup(null);
         },
@@ -656,6 +696,7 @@ export default function Home() {
     setCart({});
     setCashReceived(null);
     setQrisConfirmed(false);
+    setPaymentModalVisible(false);
     setNotice(`${rupiah(cartTotal)} · ${cartCups} cup (${payment}) tersimpan.`);
     void flushQueue();
   }
@@ -874,16 +915,6 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="sidebar-cashier-card">
-              <div className="sidebar-avatar" aria-hidden="true">
-                {session.cashierName.slice(0, 2).toUpperCase()}
-              </div>
-              <div className="sidebar-cashier-meta">
-                <strong>{session.cashierName}</strong>
-                <span>{branchDisplay}</span>
-              </div>
-            </div>
-
             <nav className="sidebar-nav" aria-label="Navigasi layar kerja">
               <button
                 type="button"
@@ -920,27 +951,11 @@ export default function Home() {
               </button>
             </nav>
           </div>
-
-          <div className="sidebar-foot">
-            <div className={`connection ${!online || syncError ? "connection-warn" : ""}`} aria-live="polite">
-              {!online ? <WifiOff size={16} /> : syncing ? <CloudUpload size={16} /> : syncError ? <CloudOff size={16} /> : <Wifi size={16} />}
-              <span>{!online ? "Perangkat offline" : syncing ? "Menyinkronkan data…" : pendingCurrentBranch ? `${pendingCurrentBranch} menunggu kirim` : syncError ? "Perlu sinkronisasi" : "Tersinkron ke Sheets"}</span>
-            </div>
-            <p className="sidebar-foot-note">Keluar sesi (Log Out) tersedia melalui menu Akun setelah shift ditutup.</p>
-          </div>
         </aside>
 
         <div className="workspace">
           <div className="workspace-top">
             <div>
-              <div className="scope-line">
-                <span className="scope-dot" />
-                <span>{branchDisplay}</span>
-                <span className="scope-divider">/</span>
-                <span>{session.cashierName}</span>
-                <span className="scope-divider">·</span>
-                <span className="scope-badge">{shiftStatusLabel}</span>
-              </div>
               <h1>{tab === "pos" ? "Kasir" : tab === "shift" ? "Manajemen Shift" : "Informasi Akun"}</h1>
               <p className="page-date">{displayDate(date)}</p>
             </div>
@@ -957,141 +972,100 @@ export default function Home() {
           {!online && <div className="message offline-message" role="status"><WifiOff size={18} /><span>Offline. Pesanan baru akan disimpan di perangkat lalu dikirim saat koneksi pulih.</span></div>}
 
           {tab === "pos" && (
-            <div className="pos-layout">
-              <section className="menu-area" aria-labelledby="menu-title">
-                {!session.shiftId && (
-                  <div className="shift-gate-banner">
+            <div className="pos-stage-wrap">
+              <div className={`pos-layout ${!session.shiftId ? "is-blurred" : ""}`} aria-hidden={!session.shiftId ? true : undefined}>
+                <section className="menu-area" aria-labelledby="menu-title">
+                  <div className="section-heading">
                     <div>
-                      <strong>Shift belum dibuka</strong>
-                      <p>Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan.</p>
+                      <h2 id="menu-title">Menu cuanki</h2>
+                      <p>{session.branchName ? `Menu aktif ${session.branchName}` : "Pilih varian dan jumlah cup setelah buka shift."}</p>
                     </div>
+                    <span className="section-count">{menus.length} menu</span>
+                  </div>
+                  <div className="menu-list">
+                    {menus.length ? menus.map((menu, index) => {
+                      const qty = cart[menu.sku_code] || 0;
+                      return (
+                        <article className="menu-row" key={menu.sku_code}>
+                          <div className="menu-ordinal">0{index + 1}</div>
+                          <div className="menu-info">
+                            <h3>{menu.menu_name}</h3>
+                            <p>Harga satuan per cup</p>
+                            <strong>{rupiah(menu.sell_price)}</strong>
+                          </div>
+                          <div className="stepper" aria-label={`Jumlah ${menu.menu_name}`}>
+                            <button type="button" tabIndex={!session.shiftId ? -1 : 0} aria-label={`Kurangi ${menu.menu_name}`} onClick={() => stepQty(menu.sku_code, -1)}><Minus size={19} /></button>
+                            <output aria-live="polite">{qty}</output>
+                            <button type="button" tabIndex={!session.shiftId ? -1 : 0} aria-label={`Tambah ${menu.menu_name}`} onClick={() => stepQty(menu.sku_code, 1)}><Plus size={19} /></button>
+                          </div>
+                        </article>
+                      );
+                    }) : <div className="empty-state">Menu belum tersedia. Pastikan konfigurasi cabang aktif di Google Sheets.</div>}
+                  </div>
+                  <div className="day-strip">
+                    <span>Terjual pada shift ini</span>
+                    <strong>{shiftCups} cup · {rupiah(shiftRevenue)}</strong>
+                  </div>
+                </section>
+
+                <aside className="checkout" aria-labelledby="checkout-title">
+                  <div className="checkout-head">
+                    <div>
+                      <h2 id="checkout-title">Pesanan saat ini</h2>
+                      <p>{cartCups ? `${cartCups} cup dipilih` : "Belum ada menu dipilih"}</p>
+                    </div>
+                    <LogoBadge className="checkout-icon" width={92} />
+                  </div>
+                  <div className="cart-lines">
+                    {cartCups ? menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => {
+                      const qty = cart[menu.sku_code] || 0;
+                      return <div className="cart-line" key={menu.sku_code}><span>{qty}× {menu.menu_name}</span><strong>{rupiah(qty * menu.sell_price)}</strong></div>;
+                    }) : <p className="cart-empty">Tambah menu untuk mulai menghitung pesanan.</p>}
+                  </div>
+                  <div className="cart-total"><span>Total bayar</span><strong>{rupiah(cartTotal)}</strong></div>
+                  <button
+                    className="primary-button checkout-cta-button"
+                    type="button"
+                    tabIndex={!session.shiftId ? -1 : 0}
+                    onClick={openPaymentModal}
+                  >
+                    <span>{closed ? "Shift sudah ditutup" : !session.shiftId ? "Buka shift dulu" : cartCups ? `Checkout · ${rupiah(cartTotal)}` : "Checkout"}</span>
+                    <ArrowRight size={20} />
+                  </button>
+                  <p className="checkout-help">Pilih metode pembayaran Tunai atau QRIS pada jendela berikutnya.</p>
+                  {Boolean(session.shiftId) && shiftCups + cartCups > (draft.cupBawa || 0) && <p className="field-error">Cup tersedia tidak cukup. Tidak ada restock dalam shift ini.</p>}
+                </aside>
+                {Boolean(session.shiftId) && cartCups > 0 && !checkoutVisible && (
+                  <div className="mobile-checkout-bar">
+                    <div><span>{cartCups} cup dipilih</span><strong>{rupiah(cartTotal)}</strong></div>
+                    <button type="button" onClick={openPaymentModal}>Checkout <ArrowRight size={18} /></button>
+                  </div>
+                )}
+              </div>
+
+              {!session.shiftId && (
+                <div className="pos-blur-gate" role="region" aria-labelledby="pos-gate-heading">
+                  <div className="pos-gate-card">
+                    <span className="shift-stage-icon" aria-hidden="true">
+                      <ClipboardCheck size={28} />
+                    </span>
+                    <h2 id="pos-gate-heading">Shift belum dibuka</h2>
+                    <p>Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan.</p>
                     <button
                       type="button"
-                      className="gate-action-button"
+                      className="primary-button shift-center-cta"
                       onClick={() => {
-                        setTab("shift");
                         setOpenError("");
                         void loadConfig();
                         setOpenModalVisible(true);
                       }}
                     >
-                      Buka Shift <ArrowRight size={17} />
+                      <span>Buka Shift</span>
+                      <ArrowRight size={20} />
                     </button>
                   </div>
-                )}
-                <div className="section-heading">
-                  <div>
-                    <h2 id="menu-title">Menu cuanki</h2>
-                    <p>{session.branchName ? `Menu aktif ${session.branchName}` : "Pilih varian dan jumlah cup setelah buka shift."}</p>
-                  </div>
-                  <span className="section-count">{menus.length} menu</span>
                 </div>
-                <div className="menu-list">
-                  {menus.length ? menus.map((menu, index) => {
-                    const qty = cart[menu.sku_code] || 0;
-                    return (
-                      <article className="menu-row" key={menu.sku_code}>
-                        <div className="menu-ordinal">0{index + 1}</div>
-                        <div className="menu-info">
-                          <h3>{menu.menu_name}</h3>
-                          <p>Harga satuan per cup</p>
-                          <strong>{rupiah(menu.sell_price)}</strong>
-                        </div>
-                        <div className="stepper" aria-label={`Jumlah ${menu.menu_name}`}>
-                          <button type="button" aria-label={`Kurangi ${menu.menu_name}`} onClick={() => stepQty(menu.sku_code, -1)}><Minus size={19} /></button>
-                          <output aria-live="polite">{qty}</output>
-                          <button type="button" aria-label={`Tambah ${menu.menu_name}`} onClick={() => stepQty(menu.sku_code, 1)}><Plus size={19} /></button>
-                        </div>
-                      </article>
-                    );
-                  }) : <div className="empty-state">Menu belum tersedia. Pastikan konfigurasi cabang aktif di Google Sheets.</div>}
-                </div>
-                <div className="day-strip">
-                  <span>Terjual pada shift ini</span>
-                  <strong>{shiftCups} cup · {rupiah(shiftRevenue)}</strong>
-                </div>
-              </section>
-
-              <aside className="checkout" aria-labelledby="checkout-title">
-                <div className="checkout-head">
-                  <div>
-                    <h2 id="checkout-title">Pesanan saat ini</h2>
-                    <p>{cartCups ? `${cartCups} cup dipilih` : "Belum ada menu dipilih"}</p>
-                  </div>
-                  <LogoBadge className="checkout-icon" width={92} />
-                </div>
-                <div className="cart-lines">
-                  {cartCups ? menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => {
-                    const qty = cart[menu.sku_code] || 0;
-                    return <div className="cart-line" key={menu.sku_code}><span>{qty}× {menu.menu_name}</span><strong>{rupiah(qty * menu.sell_price)}</strong></div>;
-                  }) : <p className="cart-empty">Tambah menu untuk mulai menghitung pesanan.</p>}
-                </div>
-                <div className="cart-total"><span>Total bayar</span><strong>{rupiah(cartTotal)}</strong></div>
-                <div className="payment-block">
-                  <span className="field-label">Metode pembayaran</span>
-                  <div className="payment-options" role="group" aria-label="Metode pembayaran">
-                    <button type="button" className={payment === "TUNAI" ? "selected" : ""} onClick={() => setPayment("TUNAI")}><Banknote size={18} /> Tunai</button>
-                    <button type="button" className={payment === "QRIS" ? "selected" : ""} onClick={() => setPayment("QRIS")}><QrCode size={18} /> QRIS</button>
-                  </div>
-                </div>
-                {payment === "TUNAI" && (
-                  <div className="cash-block">
-                    <div className="quick-cash-row" role="group" aria-label="Nominal cepat uang tunai">
-                      <button
-                        type="button"
-                        className={`cash-chip ${cashReceived === null ? "active" : ""}`}
-                        onClick={() => setCashReceived(null)}
-                      >
-                        Uang Pas
-                      </button>
-                      {[20000, 50000, 100000].map((denom) => (
-                        <button
-                          key={denom}
-                          type="button"
-                          className={`cash-chip ${cashReceived === denom ? "active" : ""}`}
-                          onClick={() => setCashReceived(denom)}
-                        >
-                          {rupiah(denom)}
-                        </button>
-                      ))}
-                    </div>
-                    <NumberField
-                      id="cash-received"
-                      label="Hitung kembalian (opsional)"
-                      placeholder="Kosongkan jika uang pas"
-                      value={cashReceived}
-                      onChange={setCashReceived}
-                      currency
-                      hint="Default otomatis Uang Pas. Isi hanya jika perlu menghitung uang kembalian."
-                    />
-                    <div className={`change-line ${change < 0 ? "negative" : ""}`}>
-                      <span>Kembalian</span>
-                      <strong>
-                        {cartCups === 0
-                          ? "—"
-                          : cashReceived === null
-                            ? "Rp0 (Uang pas)"
-                            : change < 0
-                              ? `Kurang ${rupiah(-change)}`
-                              : rupiah(change)}
-                      </strong>
-                    </div>
-                  </div>
-                )}
-                {payment === "QRIS" && (
-                  <label className="qris-confirm-row">
-                    <input type="checkbox" checked={qrisConfirmed} onChange={(event) => setQrisConfirmed(event.target.checked)} />
-                    <span>Pembayaran QRIS sebesar <strong>{rupiah(cartTotal)}</strong> sudah berhasil terlihat di aplikasi merchant.</span>
-                  </label>
-                )}
-                <button className="primary-button pay-button" type="button" onClick={handlePay}>
-                  <span>{closed ? "Shift sudah ditutup" : !session.shiftId ? "Buka shift dulu" : `Bayar ${rupiah(cartTotal)}`}</span>
-                  <ArrowRight size={21} />
-                </button>
-                <p className="checkout-help">Penjualan tunai & QRIS langsung dikalkulasikan ke rekonsiliasi tutup shift.</p>
-                {Boolean(session.shiftId) && shiftCups + cartCups > (draft.cupBawa || 0) && <p className="field-error">Cup tersedia tidak cukup. Tidak ada restock dalam shift ini.</p>}
-              </aside>
-              {cartCups > 0 && !checkoutVisible && <div className="mobile-checkout-bar"><div><span>{cartCups} cup dipilih</span><strong>{rupiah(cartTotal)}</strong></div><button type="button" onClick={() => document.getElementById("checkout-title")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Lanjut bayar <ArrowRight size={18} /></button></div>}
+              )}
             </div>
           )}
 
@@ -1270,6 +1244,125 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {paymentModalVisible && Boolean(session.shiftId) && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPaymentModalVisible(false)}>
+          <div
+            className="shift-modal-dialog payment-modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="shift-modal-header">
+              <div>
+                <h2 id="payment-modal-title">Metode Pembayaran</h2>
+                <p>{cartCups} cup dipilih · {session.branchName}</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button modal-close"
+                aria-label="Tutup modal pembayaran"
+                onClick={() => setPaymentModalVisible(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="shift-modal-body">
+              <div className="payment-modal-summary">
+                <div className="cart-lines">
+                  {menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => {
+                    const qty = cart[menu.sku_code] || 0;
+                    return (
+                      <div className="cart-line" key={menu.sku_code}>
+                        <span>{qty}× {menu.menu_name}</span>
+                        <strong>{rupiah(qty * menu.sell_price)}</strong>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="cart-total">
+                  <span>Total bayar</span>
+                  <strong>{rupiah(cartTotal)}</strong>
+                </div>
+              </div>
+
+              <div className="payment-block">
+                <span className="field-label">Pilih metode pembayaran</span>
+                <div className="payment-options" role="group" aria-label="Metode pembayaran">
+                  <button type="button" className={payment === "TUNAI" ? "selected" : ""} onClick={() => setPayment("TUNAI")}>
+                    <Banknote size={18} /> Tunai
+                  </button>
+                  <button type="button" className={payment === "QRIS" ? "selected" : ""} onClick={() => setPayment("QRIS")}>
+                    <QrCode size={18} /> QRIS
+                  </button>
+                </div>
+              </div>
+
+              {payment === "TUNAI" && (
+                <div className="cash-block">
+                  <div className="quick-cash-row" role="group" aria-label="Nominal cepat uang tunai">
+                    <button
+                      type="button"
+                      className={`cash-chip ${cashReceived === null ? "active" : ""}`}
+                      onClick={() => setCashReceived(null)}
+                    >
+                      Uang Pas
+                    </button>
+                    {[20000, 50000, 100000].map((denom) => (
+                      <button
+                        key={denom}
+                        type="button"
+                        className={`cash-chip ${cashReceived === denom ? "active" : ""}`}
+                        onClick={() => setCashReceived(denom)}
+                      >
+                        {rupiah(denom)}
+                      </button>
+                    ))}
+                  </div>
+                  <NumberField
+                    id="cash-received"
+                    label="Hitung kembalian (opsional)"
+                    placeholder="Kosongkan jika uang pas"
+                    value={cashReceived}
+                    onChange={setCashReceived}
+                    currency
+                    hint="Default otomatis Uang Pas. Isi hanya jika perlu menghitung uang kembalian."
+                  />
+                  <div className={`change-line ${change < 0 ? "negative" : ""}`}>
+                    <span>Kembalian</span>
+                    <strong>
+                      {cartCups === 0
+                        ? "—"
+                        : cashReceived === null
+                          ? "Rp0 (Uang pas)"
+                          : change < 0
+                            ? `Kurang ${rupiah(-change)}`
+                            : rupiah(change)}
+                    </strong>
+                  </div>
+                </div>
+              )}
+
+              {payment === "QRIS" && (
+                <label className="qris-confirm-row">
+                  <input type="checkbox" checked={qrisConfirmed} onChange={(event) => setQrisConfirmed(event.target.checked)} />
+                  <span>Pembayaran QRIS sebesar <strong>{rupiah(cartTotal)}</strong> sudah berhasil terlihat di aplikasi merchant.</span>
+                </label>
+              )}
+
+              <div className="shift-modal-actions">
+                <button className="primary-button pay-button" type="button" onClick={handlePay}>
+                  <span>Bayar {rupiah(cartTotal)}</span>
+                  <ArrowRight size={21} />
+                </button>
+                <p className="checkout-help">Penjualan tunai & QRIS langsung dikalkulasikan ke rekonsiliasi tutup shift.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {openModalVisible && !session.shiftId && (
         <div className="modal-backdrop" role="presentation" onClick={() => !openBusy && setOpenModalVisible(false)}>

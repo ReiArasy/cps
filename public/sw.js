@@ -1,5 +1,5 @@
-const CACHE = "cuanki-pos-shell-v3";
-const SHELL = ["/", "/manifest.webmanifest", "/logo-cuanki.png", "/icon-192.png", "/icon-512.png"];
+const CACHE = "cuanki-pos-shell-v4";
+const SHELL = ["/", "/manifest.webmanifest", "/logo-cuanki.png", "/cuanki-icon-192.png?v=4", "/cuanki-icon-512.png?v=4"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
