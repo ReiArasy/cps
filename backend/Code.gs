@@ -289,6 +289,7 @@ function openShift_(p) {
     throw new Error('Cup Bawa tidak boleh kurang dari total bungkus bumbu yang dibawa.');
   }
   var modal = money_(s.modal_awal, 'modal_awal');
+  if (modal <= 0) throw new Error('Modal awal kas wajib diisi dan harus lebih dari Rp0.');
   var shifts = database_().getSheetByName('Rekap_Shift');
   var found = shiftRow_(shifts, id);
   if (found) {

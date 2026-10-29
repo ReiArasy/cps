@@ -563,9 +563,13 @@ export default function Home() {
       triggerPopup("Stok Bumbu Belum Lengkap", "Isi Stok Bawa Awal (bungkus bumbu) minimal 1 bungkus sebelum memulai shift.");
       return;
     }
+    if (draft.modalAwal === null || draft.modalAwal <= 0) {
+      triggerPopup("Modal Awal Kas Wajib Diisi", "Modal Awal Kas wajib diisi dan harus lebih dari Rp0 sebelum memulai shift.");
+      return;
+    }
     const effectiveCupBawa = draft.cupBawa !== null ? draft.cupBawa : sumBumbuBawa;
-    if (draft.modalAwal === null || effectiveCupBawa < 1) {
-      triggerPopup("Data Shift Belum Lengkap", "Isi Modal Awal Kas dan Stok Bumbu Bawa (minimal 1 bungkus/cup) sebelum memulai shift.");
+    if (effectiveCupBawa < 1) {
+      triggerPopup("Data Shift Belum Lengkap", "Isi Stok Bumbu Bawa (minimal 1 bungkus/cup) sebelum memulai shift.");
       return;
     }
     if (effectiveCupBawa < sumBumbuBawa) {
@@ -1131,14 +1135,16 @@ export default function Home() {
                         <article className="menu-row" key={menu.sku_code}>
                           <div className="menu-ordinal">0{index + 1}</div>
                           <div className="menu-info">
-                            <h3>{menu.menu_name}</h3>
-                            <p>
-                              Harga satuan per cup
-                              {Boolean(session.shiftId) && remainingSku !== null && (
-                                <> · <span className={remainingSku <= 0 ? "stock-empty" : "stock-available"}>Sisa bumbu: {remainingSku}/{bawaSku}</span></>
-                              )}
-                            </p>
-                            <strong>{rupiah(menu.sell_price)}</strong>
+                            <h3 className="menu-name">{menu.menu_name}</h3>
+                            <p className="menu-sub-desc">Harga satuan per cup</p>
+                            {Boolean(session.shiftId) && remainingSku !== null && (
+                              <p className="menu-bumbu-desc">
+                                <span className={remainingSku <= 0 ? "stock-empty" : "stock-available"}>
+                                  Sisa bumbu: {remainingSku}/{bawaSku}
+                                </span>
+                              </p>
+                            )}
+                            <strong className="menu-price">{rupiah(menu.sell_price)}</strong>
                           </div>
                           <div className="stepper" aria-label={`Jumlah ${menu.menu_name}`}>
                             <button type="button" tabIndex={!session.shiftId ? -1 : 0} aria-label={`Kurangi ${menu.menu_name}`} onClick={() => stepQty(menu.sku_code, -1)}><Minus size={19} /></button>
@@ -1357,7 +1363,6 @@ export default function Home() {
                   <div><dt>Nama kasir</dt><dd>{session.cashierName}</dd></div>
                   {session.username && <div><dt>Username akun</dt><dd>{session.username}</dd></div>}
                   <div><dt>Cabang bertugas</dt><dd>{branchDisplay}</dd></div>
-                  <div><dt>Status shift</dt><dd>{shiftStatusLabel}</dd></div>
                   <div><dt>Tanggal operasional</dt><dd>{displayDate(date)}</dd></div>
                   <div><dt>Waktu masuk sesi</dt><dd>{loginTime} WIB</dd></div>
                   <div><dt>Batas sesi otomatis</dt><dd>{expiryTime} WIB</dd></div>
@@ -1691,12 +1696,29 @@ export default function Home() {
                         const selisih = fisik !== null ? fisik - soldPos : null;
                         return (
                           <tr key={menu.sku_code}>
-                            <td>{menu.menu_name}</td>
-                            <td>{bawa}</td>
-                            <td>{sisa === null ? "—" : sisa}</td>
-                            <td>{fisik === null ? "—" : fisik}</td>
-                            <td>{soldPos}</td>
-                            <td className={selisih === null ? "" : selisih === 0 ? "cell-ok" : "cell-diff"}>
+                            <td className="bumbu-td-menu">
+                              <span className="bumbu-menu-title">{menu.menu_name}</span>
+                              <span className={`bumbu-mobile-pill ${selisih === null ? "pill-pending" : selisih === 0 ? "pill-ok" : "pill-diff"}`}>
+                                {selisih === null ? "—" : selisih === 0 ? "0 (Sesuai)" : `${selisih > 0 ? "+" : ""}${selisih}`}
+                              </span>
+                            </td>
+                            <td data-label="Bawa Awal">
+                              <span className="bumbu-cell-label">Bawa Awal:</span>
+                              <span className="bumbu-cell-val">{bawa}</span>
+                            </td>
+                            <td data-label="Sisa Akhir">
+                              <span className="bumbu-cell-label">Sisa Akhir:</span>
+                              <span className="bumbu-cell-val">{sisa === null ? "—" : sisa}</span>
+                            </td>
+                            <td data-label="Fisik Terpakai">
+                              <span className="bumbu-cell-label">Fisik Terpakai:</span>
+                              <span className="bumbu-cell-val">{fisik === null ? "—" : fisik}</span>
+                            </td>
+                            <td data-label="Terjual di POS">
+                              <span className="bumbu-cell-label">Terjual POS:</span>
+                              <span className="bumbu-cell-val">{soldPos}</span>
+                            </td>
+                            <td className={`bumbu-td-desktop-selisih ${selisih === null ? "" : selisih === 0 ? "cell-ok" : "cell-diff"}`}>
                               {selisih === null ? "—" : selisih === 0 ? "0 (Sesuai)" : `${selisih > 0 ? "+" : ""}${selisih}`}
                             </td>
                           </tr>
