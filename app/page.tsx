@@ -63,19 +63,37 @@ function NumberField({ id, label, value, onChange, currency = false, required = 
 }
 
 function LogoBadge({ className, width = 168 }: { className: string; width?: number }) {
-  const height = Math.round((width * 256) / 560);
+  const cuankiHeight = Math.round((width * 256) / 560);
+  const agencyHeight = Math.round(cuankiHeight * 0.94);
   return (
-    <span className={className} aria-hidden="true">
+    <span className={`collab-brand-lockup ${className}`} aria-hidden="true">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-cuanki.png" alt="Cuanki Cep Bewok Express" width={width} height={height} className="cuanki-logo" decoding="async" />
+      <img
+        src="/logo-cuanki.png"
+        alt="Cuanki Cep Bewok Express"
+        width={Math.round(cuankiHeight * (560 / 256))}
+        height={cuankiHeight}
+        className="cuanki-logo"
+        decoding="async"
+      />
+      <span className="collab-sep" aria-hidden="true">×</span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo-agency.png"
+        alt="Agency"
+        width={agencyHeight}
+        height={agencyHeight}
+        className="agency-logo"
+        decoding="async"
+      />
     </span>
   );
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={`brand ${compact ? "brand-compact" : ""}`} aria-label="Cuanki Cep Bewok Express">
-      <LogoBadge className="brand-mark" width={compact ? 142 : 192} />
+    <div className={`brand ${compact ? "brand-compact" : ""}`} aria-label="Cuanki Cep Bewok Express × Agency">
+      <LogoBadge className="brand-mark" width={compact ? 120 : 160} />
     </div>
   );
 }
