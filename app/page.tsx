@@ -258,9 +258,29 @@ export default function Home() {
       if (state.found && state.closed) {
         setClosed(true);
         writeLocal(closedKey(session.branchId, session.shiftDate || jakartaDate()), true);
+      } else if (state.found === false) {
+        const targetDate = session.shiftDate || jakartaDate();
+        window.localStorage.removeItem(draftKey(session.branchId, targetDate));
+        window.localStorage.removeItem(closedKey(session.branchId, targetDate));
+        saveQueue(queueRef.current.filter((item) => item.payload.shift_id !== session.shiftId));
+        saveLedger(ledgerRef.current.filter((sale) => sale.shiftId !== session.shiftId));
+        const resetSession: Session = {
+          ...session,
+          branchId: "",
+          branchName: "",
+          shiftId: undefined,
+          shiftDate: undefined,
+        };
+        writeLocal(SESSION_KEY, resetSession);
+        sessionRef.current = resetSession;
+        setSession(resetSession);
+        setDraft(emptyShiftDraft());
+        setClosed(false);
+        setCart({});
+        setTab("shift");
       }
     }).catch(() => {});
-  }, [session]);
+  }, [session, saveLedger, saveQueue]);
 
   useEffect(() => {
     const onOnline = () => { setOnline(true); void loadConfig(); void flushQueue(); };

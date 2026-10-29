@@ -17,19 +17,20 @@ Frontend Next.js App Router, TypeScript, Tailwind CSS, dan Lucide Icons. Backend
 
 ## Product Purpose
 
-POS multi-cabang dengan antrean transaksi lokal saat offline dan rekonsiliasi harian otomatis. Satu Google Sheets menjadi sumber data untuk seluruh cabang; penambahan cabang dilakukan lewat `Master_Config` tanpa perubahan kode.
+POS multi-cabang dengan antrean transaksi lokal saat offline dan rekonsiliasi harian otomatis. Satu Google Sheets menjadi sumber data terpusat dengan skema ternormalisasi (`Master_Cabang`, `Master_Menu`, dan `Master_Kasir`) sehingga penambahan cabang, menu, maupun kasir dilakukan cukup 1 baris per entitas tanpa duplikasi data.
 
 ## Operating Context
 
 1. Kasir masuk ke aplikasi melalui halaman **Login** menggunakan `username` dan `pin_code` 4–8 digit yang terdaftar di tab `Master_Kasir` pada Google Sheets (pembuatan akun hanya dilakukan di Sheets, bukan di aplikasi). Sesi bertanda tangan disimpan di perangkat sampai kedaluwarsa atau logout.
-2. Sebelum berjualan, kasir membuka **Modal Buka Shift**, memilih cabang operasional, dan mengisi Modal Awal Kas serta Cup Bawa minimal 1 cup. Tidak ada restock selama shift.
-3. Kasir menambah kuantitas menu aktif dari `Master_Config`, memilih Tunai/QRIS, dan menekan **Bayar**. Untuk Tunai, sistem otomatis mengasumsikan **Uang Pas** (input uang diterima bersifat opsional untuk bantu hitung kembalian). Untuk QRIS, pembayaran wajib terkonfirmasi di aplikasi merchant.
+2. Sebelum berjualan, kasir membuka **Modal Buka Shift**, memilih cabang operasional (dari `Master_Cabang`), dan mengisi Modal Awal Kas serta Cup Bawa minimal 1 cup. Tidak ada restock selama shift.
+3. Kasir menambah kuantitas menu aktif dari `Master_Menu`, memilih Tunai/QRIS, dan menekan **Bayar**. Untuk Tunai, sistem otomatis mengasumsikan **Uang Pas** (input uang diterima bersifat opsional untuk bantu hitung kembalian). Untuk QRIS, pembayaran wajib terkonfirmasi di aplikasi merchant.
 4. Saat shift berjalan, layar **Shift** menampilkan **Total Pendapatan Tunai** dan **QRIS Sistem** beserta tombol **Tutup Shift**. Di dalam **Modal Tutup Shift**, kasir mencatat audit cup (`Cup Sisa`, `Cup Reject`), biaya operasional harian, dan `Total uang fisik di laci` (cash opname laci), memeriksa rincian rekonsiliasi sebelum tutup, mencentang validasi kebenaran data, lalu menekan **Kirim laporan tutup shift**.
-5. Admin memfilter `Laporan_Admin` berdasarkan tanggal/cabang dan memeriksa `status_audit`.
+5. Admin memfilter `Laporan_Admin` dan `Laporan_Menu` berdasarkan tanggal/cabang dan memeriksa `status_audit`.
 
 ## Capabilities and Constraints
 
-- Tab database: `Master_Config`, `Master_Kasir`, `Log_Transaksi`, `Rekap_Shift`, `Laporan_Admin`, dan `Laporan_Menu` untuk rincian semua SKU termasuk menu baru.
+- Tab database: `Master_Cabang`, `Master_Menu`, `Master_Kasir`, `Log_Transaksi`, `Rekap_Shift`, `Laporan_Admin`, dan `Laporan_Menu`.
+- Fungsi `setupDatabase()` otomatis memigrasikan tab lama (`Master_Config`) ke `Master_Cabang` dan `Master_Menu`, serta membersihkan skema header yang berubah. Fungsi `resetDatabase()` tersedia untuk mengosongkan seluruh transaksi, shift, dan laporan kembali ke 0 data saat pengujian tanpa menghapus data master.
 - SKU awal: `MN-AYM` Ayam Bawang Rp18.000/HPP Rp11.500; `MN-KRE` Kare Pedas Rp18.000/HPP Rp11.500; `MN-CKJ` Creamy Keju Rp20.000/HPP Rp18.500.
 - Default cabang awal: gaji Rp50.000/hari dan sewa Rp26.000/hari. `daily_rent` disimpan sebagai alokasi harian; bila tarif sumbernya bulanan, admin mengisi hasil tarif bulanan / 30.
 - Untuk cabang baru, tambahkan satu baris per SKU di `Master_Config`, ulangi `branch_id`, nama cabang, PIN, gaji dan sewa yang sama pada setiap baris, serta isi `is_active` dengan `TRUE`.
