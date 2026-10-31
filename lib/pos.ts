@@ -22,6 +22,7 @@ export type Session = {
   loginAt?: number;
   shiftId?: string;
   shiftDate?: string;
+  isShiftClosed?: boolean;
 };
 
 export type PaymentMethod = "TUNAI" | "QRIS";

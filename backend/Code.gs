@@ -121,7 +121,16 @@ function resetDatabase() {
   var legacy = ss.getSheetByName('Master_Config');
   if (legacy && ss.getSheets().length > 1) ss.deleteSheet(legacy);
   setupDatabase();
+  SpreadsheetApp.flush();
   return 'Seluruh data transaksi, shift, dan laporan berhasil di-reset ke 0.';
+}
+
+/**
+ * Alias pembersih data testing sebelum mulai jualan hari ini:
+ * Mengosongkan data transaksi, shift testing, dan laporan rekap tanpa mengutak-atik master data.
+ */
+function cleanTestData() {
+  return resetDatabase();
 }
 
 function doGet(e) {
@@ -310,10 +319,11 @@ function openShift_(p) {
   if (shifts.getLastRow() > 1) {
     var openRows = shifts.getRange(2,1,shifts.getLastRow()-1,24).getValues();
     openRows.forEach(function(r, idx) {
-      if (dateStr_(r[1]) === date && String(r[2]) === branchId && String(r[23]) === 'OPEN') {
+      if (String(r[2]) === branchId && String(r[23] || '').trim().toUpperCase() === 'OPEN') {
         shifts.getRange(idx + 2, 24).setValue('CLOSED');
       }
     });
+    SpreadsheetApp.flush();
   }
   var nextRow = shifts.getLastRow() + 1;
   shifts.getRange(nextRow, 2).setNumberFormat('@');
@@ -365,7 +375,7 @@ function getShift_(p) {
     for (var i = pairs.length - 1; i >= 0; i--) {
       if (dateStr_(pairs[i][0]) === String(p.date) && String(pairs[i][1]) === branchId) {
         row = i + 2;
-        if (String(pairs[i][22]) === 'OPEN') break;
+        if (String(pairs[i][22] || '').trim().toUpperCase() === 'OPEN') break;
       }
     }
   }
@@ -375,11 +385,12 @@ function getShift_(p) {
   var totals = shiftTotals_(String(data[0]));
   var wage = Number(data[21]) || 0;
   var bonus = calculateBonus_(totals.cups);
+  var isClosed = String(data[23] || '').trim().toUpperCase() === 'CLOSED';
   return {
     ok:true,
     found:true,
     shift_id:String(data[0]),
-    closed:String(data[23]) === 'CLOSED',
+    closed:isClosed,
     cup_bawa:Number(data[4]),
     modal_awal:Number(data[10]),
     daily_wage:wage,
@@ -484,6 +495,18 @@ function closeShiftV2_(p) {
   authorizedSession_(p, branchId);
   var ss = database_(), shifts = ss.getSheetByName('Rekap_Shift');
   var row = shiftRow_(shifts, id);
+  if (!row && s.date && shifts.getLastRow() > 1) {
+    var pairs = shifts.getRange(2,2,shifts.getLastRow()-1,23).getValues();
+    for (var i = pairs.length - 1; i >= 0; i--) {
+      if (dateStr_(pairs[i][0]) === dateStr_(s.date) && String(pairs[i][1]) === branchId) {
+        if (String(pairs[i][22] || '').trim().toUpperCase() === 'OPEN') {
+          row = i + 2;
+          id = String(shifts.getRange(row, 1).getValue());
+          break;
+        }
+      }
+    }
+  }
   if (!row) throw new Error('Shift belum dibuka.');
   var values = shifts.getRange(row,1,1,29).getValues()[0];
   var shiftDate = dateStr_(values[1]);
@@ -497,11 +520,14 @@ function closeShiftV2_(p) {
       throw new Error('Sisa bumbu ' + sku + ' melebihi stok bawa awal (' + bumbuBawa[sku] + ').');
     }
   });
-  if (String(values[23]) === 'CLOSED') {
-    refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,parseJsonMap_(values[26] || s.bumbu_sisa));
-    return {ok:true, duplicate:true, shift_id:id, report_row:ensureReport_(ss,shiftDate,branchId)};
+  var currentStatus = String(values[23] || '').trim().toUpperCase();
+  if (currentStatus === 'CLOSED') {
+    try { refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,parseJsonMap_(values[26] || s.bumbu_sisa)); } catch(e) {}
+    var repRowDup = 0;
+    try { repRowDup = ensureReport_(ss,shiftDate,branchId); } catch(e) {}
+    return {ok:true, duplicate:true, shift_id:id, report_row:repRowDup};
   }
-  if (String(values[23]) !== 'OPEN') throw new Error('Status shift tidak valid.');
+  if (currentStatus !== 'OPEN') throw new Error('Status shift tidak valid.');
   var totals = shiftTotals_(id);
   var sisa = whole_(s.cup_sisa,'cup_sisa'), reject = whole_(s.cup_reject,'cup_reject');
   var bawa = Number(values[4]);
@@ -537,9 +563,14 @@ function closeShiftV2_(p) {
   var bonus = calculateBonus_(totals.cups);
   var wage = Number(values[21]) || 0;
   shifts.getRange(row,28,1,2).setValues([[bonus, wage + bonus]]);
-  setShiftFormulas_(shifts,row);
-  refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,bumbuSisa);
-  return {ok:true, shift_id:id, totals:totals, bonus_penjualan:bonus, total_gaji:wage + bonus, report_row:ensureReport_(ss,shiftDate,branchId)};
+  SpreadsheetApp.flush();
+
+  try { setShiftFormulas_(shifts,row); } catch(e) { console.error('setShiftFormulas_ error: ' + e.message); }
+  try { refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,bumbuSisa); } catch(e) { console.error('refreshMenuReport_ error: ' + e.message); }
+  var repRow = 0;
+  try { repRow = ensureReport_(ss,shiftDate,branchId); } catch(e) { console.error('ensureReport_ error: ' + e.message); }
+  SpreadsheetApp.flush();
+  return {ok:true, shift_id:id, totals:totals, bonus_penjualan:bonus, total_gaji:wage + bonus, report_row:repRow};
 }
 
 function refreshMenuReport_(ss,shiftId,date,branchId,bumbuBawa,bumbuSisa) {

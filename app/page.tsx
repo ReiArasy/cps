@@ -219,6 +219,22 @@ export default function Home() {
         if (raw) {
           const saved = JSON.parse(raw) as Session;
           if (saved.cashierName && saved.token && saved.expiresAt > Date.now()) {
+            const today = jakartaDate();
+            // Mitigasi shift lintas hari: Shift kemarin tidak boleh aktif hari ini
+            if (saved.shiftId && saved.shiftDate && saved.shiftDate !== today) {
+              saved.shiftId = undefined;
+              saved.shiftDate = undefined;
+              saved.branchId = "";
+              saved.branchName = "";
+              saved.isShiftClosed = false;
+              window.localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+            } else if (saved.branchId && saved.shiftId) {
+              const isClosedLocally = saved.isShiftClosed || readLocal<boolean>(closedKey(saved.branchId, saved.shiftDate || today), false);
+              if (isClosedLocally) {
+                saved.isShiftClosed = true;
+                setClosed(true);
+              }
+            }
             sessionRef.current = saved;
             setSession(saved);
             if (saved.branchId) setOpenBranch(saved.branchId);
@@ -267,7 +283,8 @@ export default function Home() {
       const saved = readLocal<ShiftDraft & { cashCountMode?: string }>(draftKey(session.branchId, date), emptyShiftDraft());
       setDraft({ ...emptyShiftDraft(), ...saved,
         tunaiFisikLaci: saved.cashCountMode === "SALES_ONLY" ? null : saved.tunaiFisikLaci });
-      setClosed(readLocal<boolean>(closedKey(session.branchId, date), false));
+      const isShiftClosed = Boolean(session.isShiftClosed) || readLocal<boolean>(closedKey(session.branchId, date), false);
+      setClosed(isShiftClosed);
       setShiftError("");
     });
     return () => { cancelled = true; };
@@ -291,6 +308,7 @@ export default function Home() {
       if (state.found && state.closed) {
         setClosed(true);
         writeLocal(closedKey(session.branchId, session.shiftDate || jakartaDate()), true);
+        setSession((prev) => (prev && !prev.isShiftClosed ? { ...prev, isShiftClosed: true } : prev));
       } else if (state.found === false) {
         const targetDate = session.shiftDate || jakartaDate();
         window.localStorage.removeItem(draftKey(session.branchId, targetDate));
@@ -475,7 +493,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift pada sesi ini sudah ditutup. Silakan keluar sesi (Log Out) melalui menu Akun untuk mengakhiri sesi kasir.",
@@ -549,6 +567,9 @@ export default function Home() {
         token: String(result.session_token),
         expiresAt: Number(result.expires_at),
         loginAt: Date.now(),
+        shiftId: undefined,
+        shiftDate: undefined,
+        isShiftClosed: false,
       };
       setDraft(emptyShiftDraft());
       setClosed(false);
@@ -658,6 +679,7 @@ export default function Home() {
         branchName: chosenBranch.branch_name,
         shiftId,
         shiftDate: today,
+        isShiftClosed: false,
       };
       writeLocal(SESSION_KEY, next);
       sessionRef.current = next;
@@ -674,7 +696,7 @@ export default function Home() {
   }
 
   function requestLogout() {
-    if (session?.shiftId && !closed) {
+    if (session?.shiftId && !closed && !session?.isShiftClosed) {
       triggerPopup(
         "Shift Belum Ditutup",
         "Kasir tidak dapat keluar sesi (log out) selama shift masih berjalan. Selesaikan perhitungan fisik dan tekan Tutup Shift terlebih dahulu.",
@@ -745,7 +767,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift ini sudah ditutup dan tidak dapat menerima transaksi baru. Silakan Log Out dari menu Akun.",
@@ -793,7 +815,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift ini sudah ditutup dan tidak dapat menerima transaksi baru. Silakan Log Out dari menu Akun.",
@@ -872,7 +894,7 @@ export default function Home() {
       triggerPopup("Shift Belum Dibuka", "Buka shift terlebih dahulu sebelum melakukan penutupan shift.");
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup("Shift Sudah Ditutup", "Shift ini sudah ditutup sebelumnya. Anda dapat keluar sesi dari menu Akun.", "Ke Menu Akun", () => { setCloseModalVisible(false); setTab("account"); setPopup(null); });
       return;
     }
@@ -924,6 +946,9 @@ export default function Home() {
     setShiftBusy(true);
     setShiftError("");
     try {
+      if (pendingToday > 0) {
+        await flushQueue();
+      }
       const server = await gasPost({
         action: "GET_SHIFT",
         session_token: session.token,
@@ -931,8 +956,11 @@ export default function Home() {
         shift_id: shiftId,
       });
       const totals = server.totals as { cups: number; cash: number; qris: number; revenue: number };
-      if (!server.found || Number(totals.cups) !== shiftCups || Number(totals.revenue) !== shiftRevenue) {
-        throw new Error("Total di Google Sheets berbeda dari perangkat ini. Periksa sinkronisasi sebelum tutup shift.");
+      if (!server.found) {
+        throw new Error("Shift tidak ditemukan di Google Sheets. Buka ulang modal atau hubungi admin.");
+      }
+      if (Number(totals.cups) !== shiftCups || Number(totals.revenue) !== shiftRevenue) {
+        throw new Error(`Data di Google Sheets (${totals.cups} cup, ${rupiah(totals.revenue)}) berbeda dari kasir (${shiftCups} cup, ${rupiah(shiftRevenue)}). Kirim ulang transaksi atau periksa koneksi sebelum tutup shift.`);
       }
       await gasPost({
         action: "CLOSE_SHIFT",
@@ -958,7 +986,14 @@ export default function Home() {
       writeLocal(closedKey(session.branchId, date), true);
       setClosed(true);
       setCloseModalVisible(false);
-      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim. Silakan Log Out melalui menu Akun.`);
+      const closedSession: Session = {
+        ...session,
+        isShiftClosed: true,
+      };
+      sessionRef.current = closedSession;
+      writeLocal(SESSION_KEY, closedSession);
+      setSession(closedSession);
+      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim ke Google Sheets (Status: CLOSED). Silakan Log Out melalui menu Akun.`);
     } catch (error) {
       setShiftError(error instanceof Error ? error.message : "Tutup shift gagal. Coba ulang kembali.");
     } finally {
@@ -1031,9 +1066,12 @@ export default function Home() {
     ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" }).format(new Date(session.loginAt))
     : "Hari ini";
 
+  const isShiftClosed = closed || Boolean(session.isShiftClosed);
+  const isShiftActive = Boolean(session.shiftId) && !isShiftClosed;
+
   const shiftStatusLabel = !session.shiftId
     ? "Belum buka shift"
-    : closed
+    : isShiftClosed
       ? "Shift sudah ditutup"
       : "Shift sedang berjalan";
 
@@ -1101,8 +1139,8 @@ export default function Home() {
               >
                 <ClipboardCheck size={19} />
                 <span>Shift</span>
-                <span className={`sidebar-pill ${!session.shiftId ? "pill-warn" : closed ? "pill-muted" : "pill-ok"}`}>
-                  {!session.shiftId ? "Buka" : closed ? "Selesai" : "Aktif"}
+                <span className={`sidebar-pill ${!session.shiftId ? "pill-warn" : isShiftClosed ? "pill-muted" : "pill-ok"}`}>
+                  {!session.shiftId ? "Buka" : isShiftClosed ? "Selesai" : "Aktif"}
                 </span>
               </button>
 
@@ -1139,7 +1177,7 @@ export default function Home() {
 
           {tab === "pos" && (
             <div className="pos-stage-wrap">
-              <div className={`pos-layout ${!session.shiftId ? "is-blurred" : ""}`} aria-hidden={!session.shiftId ? true : undefined}>
+              <div className={`pos-layout ${!isShiftActive ? "is-blurred" : ""}`} aria-hidden={!isShiftActive ? true : undefined}>
                 <section className="menu-area" aria-labelledby="menu-title">
                   <div className="section-heading">
                     <div>
@@ -1230,26 +1268,41 @@ export default function Home() {
                 )}
               </div>
 
-              {!session.shiftId && (
+              {!isShiftActive && (
                 <div className="pos-blur-gate" role="region" aria-labelledby="pos-gate-heading">
                   <div className="pos-gate-card">
                     <span className="shift-stage-icon" aria-hidden="true">
                       <ClipboardCheck size={28} />
                     </span>
-                    <h2 id="pos-gate-heading">Shift belum dibuka</h2>
-                    <p>Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan.</p>
-                    <button
-                      type="button"
-                      className="primary-button shift-center-cta"
-                      onClick={() => {
-                        setOpenError("");
-                        void loadConfig();
-                        setOpenModalVisible(true);
-                      }}
-                    >
-                      <span>Buka Shift</span>
-                      <ArrowRight size={20} />
-                    </button>
+                    <h2 id="pos-gate-heading">{isShiftClosed ? "Shift sudah ditutup" : "Shift belum dibuka"}</h2>
+                    <p>
+                      {isShiftClosed
+                        ? "Laporan shift berhasil dikirim ke Google Sheets. Silakan Log Out melalui menu Akun setelah shift selesai."
+                        : "Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan."}
+                    </p>
+                    {isShiftClosed ? (
+                      <button
+                        type="button"
+                        className="primary-button shift-center-cta"
+                        onClick={() => setTab("account")}
+                      >
+                        <span>Ke Menu Akun (Log Out)</span>
+                        <ArrowRight size={20} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="primary-button shift-center-cta"
+                        onClick={() => {
+                          setOpenError("");
+                          void loadConfig();
+                          setOpenModalVisible(true);
+                        }}
+                      >
+                        <span>Buka Shift</span>
+                        <ArrowRight size={20} />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1284,7 +1337,7 @@ export default function Home() {
 
           {tab === "shift" && Boolean(session.shiftId) && (
             <div className="shift-active-stage">
-              {closed && (
+              {isShiftClosed && (
                 <div className="message success-message">
                   <Check size={18} />
                   <span>Shift ini sudah ditutup dan tercatat di Google Sheets. Anda kini dapat keluar sesi (Log Out) melalui menu Akun.</span>
@@ -1388,7 +1441,7 @@ export default function Home() {
                     <h2 id="account-profile-title">{session.cashierName}</h2>
                     <p>{branchDisplay}</p>
                   </div>
-                  <span className={`account-status-pill ${!session.shiftId ? "status-idle" : closed ? "status-closed" : "status-open"}`}>
+                  <span className={`account-status-pill ${!session.shiftId ? "status-idle" : isShiftClosed ? "status-closed" : "status-open"}`}>
                     {shiftStatusLabel}
                   </span>
                 </div>
@@ -1435,7 +1488,7 @@ export default function Home() {
                   <div>
                     <strong>Keluar dari aplikasi kasir</strong>
                     <p>
-                      {session.shiftId && !closed
+                      {isShiftActive
                         ? "Shift masih berjalan. Anda wajib menyelesaikan Tutup Shift terlebih dahulu sebelum dapat keluar dari akun."
                         : "Sesi siap diakhiri. Menekan tombol keluar akan menghapus sesi login dari perangkat ini."}
                     </p>
