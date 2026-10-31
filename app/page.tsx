@@ -2,15 +2,15 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, Banknote, Check, CircleAlert, ClipboardCheck, CloudOff,
+  ArrowRight, Award, Banknote, Check, CircleAlert, ClipboardCheck, CloudOff,
   CloudUpload, Info, LogOut, Menu, Minus, Plus, QrCode, RefreshCw,
   ShieldAlert, Trash2, UserCheck, Wallet, Wifi, WifiOff, X,
 } from "lucide-react";
 import {
   Branch, OtherExpense, PaymentMethod, Quantities, QueueEntry, SaleRecord,
-  Session, ShiftDraft, TransactionPayload, displayDate, emptyShiftDraft,
-  gasGetConfig, gasPost, jakartaDate, numberText, parseNonNegative, readLocal,
-  rupiah, writeLocal,
+  Session, ShiftDraft, TransactionPayload, bonusTierInfo, calculateBonus, displayDate,
+  emptyShiftDraft, gasGetConfig, gasPost, jakartaDate, numberText, parseNonNegative,
+  readLocal, rupiah, writeLocal,
 } from "@/lib/pos";
 
 const QUEUE_KEY = "cps:queue:v1";
@@ -370,6 +370,11 @@ export default function Home() {
   }, [shiftSales]);
   const shiftCups = shiftSales.reduce((sum, sale) => sum + sale.cups, 0);
   const shiftRevenue = shiftSales.reduce((sum, sale) => sum + sale.amount, 0);
+  const activeBranch = branches.find((item) => item.branch_id === session?.branchId);
+  const dailyWage = activeBranch?.daily_salary ?? 50000;
+  const shiftBonus = calculateBonus(shiftCups);
+  const totalHakKasir = dailyWage + shiftBonus;
+  const bonusInfo = bonusTierInfo(shiftCups);
   const pendingToday = queue.filter((entry) => Boolean(session?.shiftId) && entry.payload.shift_id === session?.shiftId).length;
   const pendingCurrentBranch = queue.filter((entry) => Boolean(session?.branchId) && entry.payload.branch_id === session?.branchId).length;
   const physicalCups = draft.cupBawa !== null && draft.cupSisa !== null && draft.cupReject !== null
@@ -1174,8 +1179,19 @@ export default function Home() {
                     }) : <div className="empty-state">Menu belum tersedia. Pastikan konfigurasi cabang aktif di Google Sheets.</div>}
                   </div>
                   <div className="day-strip">
-                    <span>Terjual pada shift ini</span>
-                    <strong>{shiftCups} cup · {rupiah(shiftRevenue)}</strong>
+                    <div className="day-strip-metrics">
+                      <span>Terjual pada shift ini</span>
+                      <strong>{shiftCups} cup · {rupiah(shiftRevenue)}</strong>
+                    </div>
+                    {Boolean(session.shiftId) && (
+                      <div className="bonus-strip-badge-wrap" title={bonusInfo.nextTargetText}>
+                        <span className={`bonus-strip-badge ${shiftCups > 100 ? "badge-max" : shiftCups > 50 ? "badge-tier1" : "badge-none"}`}>
+                          <Award size={14} />
+                          {shiftCups > 50 ? `Bonus +${rupiah(shiftBonus)}` : "Bonus Rp0"}
+                        </span>
+                        <span className="bonus-strip-hint">{bonusInfo.nextTargetText}</span>
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -1387,12 +1403,32 @@ export default function Home() {
                 </dl>
 
                 <div className="account-summary-box">
-                  <h3>Ringkasan penjualan sesi ini</h3>
-                  <div className="reconcile-strip">
-                    <div><span>Modal awal kas</span><strong>{session.shiftId ? rupiah(draft.modalAwal || 0) : "—"}</strong></div>
+                  <h3>Ringkasan penjualan & hak kasir sesi ini</h3>
+                  <div className="reconcile-strip four-cols">
                     <div><span>Pendapatan tunai</span><strong>{rupiah(cashSales)}</strong></div>
                     <div><span>QRIS sistem</span><strong>{rupiah(qrisNet)}</strong></div>
+                    <div><span>Cup terjual</span><strong>{session.shiftId ? `${shiftCups} cup` : "—"}</strong></div>
+                    <div><span>Omset POS</span><strong>{session.shiftId ? rupiah(shiftRevenue) : "—"}</strong></div>
                   </div>
+                  {Boolean(session.shiftId) && (
+                    <div className="account-bonus-box">
+                      <div className="account-bonus-row">
+                        <span>Gaji pokok harian:</span>
+                        <strong>{rupiah(dailyWage)}</strong>
+                      </div>
+                      <div className="account-bonus-row">
+                        <span>Bonus penjualan ({shiftCups} cup):</span>
+                        <strong className={shiftBonus > 0 ? "bonus-active-text" : ""}>+{rupiah(shiftBonus)}</strong>
+                      </div>
+                      <div className="account-bonus-total">
+                        <span>Total estimasi hak kasir:</span>
+                        <strong>{rupiah(totalHakKasir)}</strong>
+                      </div>
+                      <small className="account-bonus-note">
+                        * Skema bonus: 1–50 cup bonus Rp0, 51–100 cup +Rp1.000/cup, &gt;100 cup flat Rp50.000.
+                      </small>
+                    </div>
+                  )}
                 </div>
 
                 <div className="account-logout-bar">
@@ -1867,6 +1903,24 @@ export default function Home() {
                     {cashDifference === null
                       ? "Isi Total uang fisik di laci pada bagian Cash opname laci di atas."
                       : `Uang fisik laci ${rupiah(draft.tunaiFisikLaci || 0)} dibandingkan Kas laci seharusnya ${rupiah(expectedDrawer || 0)}`}
+                  </small>
+                </div>
+
+                <div className="shift-wage-bonus-card">
+                  <div className="wage-bonus-head">
+                    <span className="wage-bonus-icon"><Award size={18} /></span>
+                    <div>
+                      <strong>Estimasi Hak Gaji &amp; Bonus Kasir</strong>
+                      <p>{shiftCups} cup terjual · {bonusInfo.nextTargetText}</p>
+                    </div>
+                  </div>
+                  <div className="wage-bonus-grid">
+                    <div><span>Gaji Pokok Shift</span><strong>{rupiah(dailyWage)}</strong></div>
+                    <div><span>Bonus ({shiftCups > 50 ? `${shiftCups} cup` : "≤ 50 cup"})</span><strong className={shiftBonus > 0 ? "bonus-active-text" : ""}>{rupiah(shiftBonus)}</strong></div>
+                    <div className="wage-total-cell"><span>Total Hak Kasir</span><strong>{rupiah(totalHakKasir)}</strong></div>
+                  </div>
+                  <small className="wage-bonus-rule-note">
+                    * Ketentuan: 1–50 cup bonus Rp0, cup ke 51–100 bonus +Rp1.000/cup, &gt;100 cup bonus flat Rp50.000.
                   </small>
                 </div>
               </section>

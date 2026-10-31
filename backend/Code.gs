@@ -9,7 +9,7 @@ var TABLES = {
   Master_Menu: ['sku_code','menu_name','sell_price','hpp_cost','is_active'],
   Master_Kasir: ['username','cashier_name','pin_code','is_active'],
   Log_Transaksi: ['trx_id','timestamp','date','branch_id','shift_id','cashier_name','rincian_menu','total_cups','total_amount','hpp_total','payment_method','items_json'],
-  Rekap_Shift: ['shift_id','date','branch_id','cashier_name','cup_bawa','cup_sisa','cup_reject','cup_fisik','cup_sistem','selisih_cup','modal_awal','penjualan_tunai','qris_sistem','op_lampu','op_kebersihan','op_penitipan','op_galon','op_lain_nominal','op_lain_detail','total_op','tunai_fisik_laci','daily_wage_snapshot','daily_rent_snapshot','status','opened_at','bumbu_bawa_json','bumbu_sisa_json'],
+  Rekap_Shift: ['shift_id','date','branch_id','cashier_name','cup_bawa','cup_sisa','cup_reject','cup_fisik','cup_sistem','selisih_cup','modal_awal','penjualan_tunai','qris_sistem','op_lampu','op_kebersihan','op_penitipan','op_galon','op_lain_nominal','op_lain_detail','total_op','tunai_fisik_laci','daily_wage_snapshot','daily_rent_snapshot','status','opened_at','bumbu_bawa_json','bumbu_sisa_json','bonus_penjualan','total_gaji'],
   Laporan_Admin: ['date','branch_id','modal_awal','penjualan_tunai','qris_sistem','omset_penjualan','total_operasional','kas_sistem_tanpa_modal','total_penerimaan','gaji_karyawan','laba_kotor','sewa_lahan','total_hpp','laba_bersih','kas_laci_seharusnya','tunai_fisik_laci','selisih_kas_laci','status_audit'],
   Laporan_Menu: ['date','branch_id','shift_id','sku_code','menu_name','bumbu_bawa','bumbu_sisa','bumbu_fisik_terpakai','qty_pos','selisih_bumbu','omset','total_hpp','laba_kotor']
 };
@@ -44,7 +44,9 @@ function setupDatabase() {
     var maxCols = Math.max(headers.length, sh.getLastColumn() || headers.length);
     var current = sh.getRange(1, 1, 1, maxCols).getValues()[0].filter(function(x) { return x !== ''; });
     if (current.length && current.join('|') !== headers.join('|')) {
-      sh.clear();
+      if (sh.getLastRow() <= 1) {
+        sh.clear();
+      }
     }
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#231919').setFontColor('#fbf5f3');
@@ -266,6 +268,12 @@ function sanitizeBumbuMap_(rawMap, label) {
   return result;
 }
 
+function calculateBonus_(cups) {
+  var c = Math.max(0, Math.floor(Number(cups) || 0));
+  if (c <= 50) return 0;
+  return Math.min(50000, (c - 50) * 1000);
+}
+
 function openShift_(p) {
   var s = p.shift || p;
   var id = safeId_(s.shift_id, 'shift_id');
@@ -293,7 +301,7 @@ function openShift_(p) {
   var shifts = database_().getSheetByName('Rekap_Shift');
   var found = shiftRow_(shifts, id);
   if (found) {
-    var existing = shifts.getRange(found,2,1,26).getValues()[0];
+    var existing = shifts.getRange(found,2,1,28).getValues()[0];
     if (dateStr_(existing[0]) !== date || String(existing[1]) !== branchId || Number(existing[3]) !== bawa || Number(existing[9]) !== modal) {
       throw new Error('Data pembukaan shift berbeda dari yang tersimpan.');
     }
@@ -309,12 +317,13 @@ function openShift_(p) {
   }
   var nextRow = shifts.getLastRow() + 1;
   shifts.getRange(nextRow, 2).setNumberFormat('@');
-  shifts.getRange(nextRow, 1, 1, 27).setValues([[
+  shifts.getRange(nextRow, 1, 1, 29).setValues([[
     id, date, branchId, safeText_(s.cashier_name,'cashier_name',80),
     bawa, '', '', '', '', '',
     modal, 0, 0, 0, 0, 0, 0, 0, '', 0, '',
     branch.wage, branch.rent, 'OPEN', new Date(),
-    bumbuKeys.length ? JSON.stringify(bumbuBawa) : '', ''
+    bumbuKeys.length ? JSON.stringify(bumbuBawa) : '', '',
+    0, branch.wage
   ]]);
   setShiftFormulas_(shifts, nextRow);
   return {ok:true, shift_id:id, opened:true, closed:false, bumbu_bawa:bumbuBawa};
@@ -361,8 +370,11 @@ function getShift_(p) {
     }
   }
   if (!row) return {ok:true, found:false};
-  var data = shifts.getRange(row,1,1,27).getValues()[0];
+  var data = shifts.getRange(row,1,1,29).getValues()[0];
   if (String(data[2]) !== branchId) throw new Error('Shift bukan milik cabang ini.');
+  var totals = shiftTotals_(String(data[0]));
+  var wage = Number(data[21]) || 0;
+  var bonus = calculateBonus_(totals.cups);
   return {
     ok:true,
     found:true,
@@ -370,9 +382,13 @@ function getShift_(p) {
     closed:String(data[23]) === 'CLOSED',
     cup_bawa:Number(data[4]),
     modal_awal:Number(data[10]),
+    daily_wage:wage,
+    daily_rent:Number(data[22]) || 0,
+    bonus_penjualan:bonus,
+    total_gaji:wage + bonus,
     bumbu_bawa:parseJsonMap_(data[25]),
     bumbu_sisa:parseJsonMap_(data[26]),
-    totals:shiftTotals_(String(data[0]))
+    totals:totals
   };
 }
 
@@ -469,7 +485,7 @@ function closeShiftV2_(p) {
   var ss = database_(), shifts = ss.getSheetByName('Rekap_Shift');
   var row = shiftRow_(shifts, id);
   if (!row) throw new Error('Shift belum dibuka.');
-  var values = shifts.getRange(row,1,1,27).getValues()[0];
+  var values = shifts.getRange(row,1,1,29).getValues()[0];
   var shiftDate = dateStr_(values[1]);
   if (String(values[2]) !== branchId) throw new Error('Shift bukan milik cabang ini.');
   var storedBumbuBawa = parseJsonMap_(values[25]);
@@ -518,9 +534,12 @@ function closeShiftV2_(p) {
       Object.keys(bumbuSisa).length ? JSON.stringify(bumbuSisa) : ''
     ]]);
   }
+  var bonus = calculateBonus_(totals.cups);
+  var wage = Number(values[21]) || 0;
+  shifts.getRange(row,28,1,2).setValues([[bonus, wage + bonus]]);
   setShiftFormulas_(shifts,row);
   refreshMenuReport_(ss,id,shiftDate,branchId,bumbuBawa,bumbuSisa);
-  return {ok:true, shift_id:id, totals:totals, report_row:ensureReport_(ss,shiftDate,branchId)};
+  return {ok:true, shift_id:id, totals:totals, bonus_penjualan:bonus, total_gaji:wage + bonus, report_row:ensureReport_(ss,shiftDate,branchId)};
 }
 
 function refreshMenuReport_(ss,shiftId,date,branchId,bumbuBawa,bumbuSisa) {
@@ -585,6 +604,8 @@ function setShiftFormulas_(shifts,row) {
   var sep = formulaSeparator_(shifts.getParent());
   shifts.getRange(row,9).setFormula('=SUMIFS(Log_Transaksi!$H$2:$H'+sep+'Log_Transaksi!$E$2:$E'+sep+'A'+row+')');
   shifts.getRange(row,10).setFormula('=IF(H'+row+'=""'+sep+'""'+sep+'H'+row+'-I'+row+')');
+  shifts.getRange(row,28).setFormula('=IF(I'+row+'<=50'+sep+'0'+sep+'MIN(50000'+sep+'(I'+row+'-50)*1000))');
+  shifts.getRange(row,29).setFormula('=V'+row+'+AB'+row);
 }
 
 function repairFormulas() {
@@ -651,7 +672,7 @@ function reportFormulas_(r) {
     f(sh('T')),
     f('D'+r+'-G'+r),
     f('H'+r+'+E'+r),
-    f(sh('V')),
+    f(sh('AC')),
     f('I'+r+'-J'+r),
     f(sh('W')),
     f(tx('J')),

@@ -148,6 +148,13 @@ input, select { min-width: 0; }
 .empty-state { padding: 36px 0; color: var(--muted); font-size: 14px; }
 .day-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 20px; color: var(--muted); font-size: 13px; }
 .day-strip strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.day-strip-metrics { display: flex; flex-direction: column; gap: 2px; }
+.bonus-strip-badge-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.bonus-strip-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.bonus-strip-badge.badge-none { background: var(--surface-raised); border: 1px solid var(--line); color: var(--muted); }
+.bonus-strip-badge.badge-tier1 { background: rgba(224, 78, 57, 0.16); border: 1px solid rgba(224, 78, 57, 0.38); color: #ff8b7b; }
+.bonus-strip-badge.badge-max { background: rgba(234, 179, 8, 0.16); border: 1px solid rgba(234, 179, 8, 0.45); color: #facc15; }
+.bonus-strip-hint { font-size: 11px; color: var(--muted); }
 .mobile-checkout-bar { display: none; }
 
 .checkout { padding: 24px; position: sticky; top: 22px; }
@@ -232,6 +239,19 @@ input, select { min-width: 0; }
 .audit-pass strong { color: var(--ok); }
 .audit-difference strong { color: var(--error); }
 
+.shift-wage-bonus-card { margin-top: 14px; padding: 14px 16px; border-radius: 10px; background: rgba(224, 78, 57, 0.06); border: 1px solid rgba(224, 78, 57, 0.22); display: flex; flex-direction: column; gap: 10px; }
+.wage-bonus-head { display: flex; align-items: center; gap: 10px; }
+.wage-bonus-icon { width: 34px; height: 34px; border-radius: 8px; background: rgba(224, 78, 57, 0.18); color: #ff8b7b; display: grid; place-items: center; flex: 0 0 auto; }
+.wage-bonus-head strong { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+.wage-bonus-head p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.wage-bonus-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.wage-bonus-grid > div { display: flex; flex-direction: column; gap: 3px; }
+.wage-bonus-grid span { font-size: 11.5px; color: var(--muted); }
+.wage-bonus-grid strong { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wage-total-cell strong { color: var(--ok); font-size: 16px; }
+.wage-bonus-rule-note { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.bonus-active-text { color: #ff8b7b; }
+
 /* Clean Account Stage */
 .account-stage { max-width: 720px; }
 .account-card { display: flex; flex-direction: column; gap: 20px; }
@@ -252,6 +272,12 @@ input, select { min-width: 0; }
 .account-summary-box { padding: 18px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
 .account-summary-box h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); }
 .account-summary-box .reconcile-strip { margin-top: 12px; padding-top: 12px; }
+.account-bonus-box { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 8px; }
+.account-bonus-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--muted); }
+.account-bonus-row strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.account-bonus-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink); font-weight: 600; }
+.account-bonus-total strong { color: var(--ok); font-size: 17px; font-variant-numeric: tabular-nums; }
+.account-bonus-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
 .account-logout-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
 .account-logout-bar strong { display: block; font-size: 15px; margin-bottom: 4px; }
 .account-logout-bar p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 400px; }
@@ -406,7 +432,9 @@ input, select { min-width: 0; }
   .stepper button { width: 40px; height: 42px; }
   .stepper output { min-width: 22px; font-size: 14.5px; }
   .checkout { position: static; margin-top: 16px; padding: 18px 14px; }
-  .day-strip { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .day-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .bonus-strip-badge-wrap { align-items: flex-start; }
+  .wage-bonus-grid { grid-template-columns: 1fr; gap: 8px; }
   .mobile-checkout-bar { position: fixed; display: flex; align-items: center; justify-content: space-between; gap: 12px; left: 0; right: 0; bottom: 0; z-index: 25; padding: 11px 18px calc(11px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }
   .mobile-checkout-bar > div { display: flex; flex-direction: column; gap: 2px; }
   .mobile-checkout-bar span { color: var(--muted); font-size: 12px; }

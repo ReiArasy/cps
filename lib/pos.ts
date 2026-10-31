@@ -7,6 +7,8 @@ export type Menu = {
 export type Branch = {
   branch_id: string;
   branch_name: string;
+  daily_salary?: number;
+  daily_rent?: number;
   menus: Menu[];
 };
 
@@ -145,6 +147,49 @@ export function readLocal<T>(key: string, fallback: T): T {
 
 export function writeLocal(key: string, value: unknown): void {
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+export function calculateBonus(cups: number): number {
+  const c = Math.max(0, Math.floor(Number(cups) || 0));
+  if (c <= 50) return 0;
+  return Math.min(50000, (c - 50) * 1000);
+}
+
+export function bonusTierInfo(cups: number): {
+  bonus: number;
+  tier: "NONE" | "TIER1" | "MAX";
+  nextTargetText: string;
+} {
+  const c = Math.max(0, Math.floor(Number(cups) || 0));
+  const bonus = calculateBonus(c);
+  if (c < 50) {
+    const diff = 50 - c;
+    return {
+      bonus: 0,
+      tier: "NONE",
+      nextTargetText: `${diff} cup lagi untuk mulai bonus +Rp1.000/cup`,
+    };
+  }
+  if (c === 50) {
+    return {
+      bonus: 0,
+      tier: "NONE",
+      nextTargetText: "Cup berikutnya (ke-51) mulai dapat bonus +Rp1.000/cup",
+    };
+  }
+  if (c < 100) {
+    const diff = 100 - c;
+    return {
+      bonus,
+      tier: "TIER1",
+      nextTargetText: `${diff} cup lagi menuju bonus maksimal Rp50.000`,
+    };
+  }
+  return {
+    bonus,
+    tier: "MAX",
+    nextTargetText: "Target tercapai! Bonus maksimal Rp50.000",
+  };
 }
 
 export async function gasGetConfig(): Promise<Branch[]> {
