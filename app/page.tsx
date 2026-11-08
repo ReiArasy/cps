@@ -21,8 +21,16 @@ const SESSION_KEY = "cps:session:v1";
 type TabKey = "pos" | "shift" | "account";
 type PopupState = {
   id: number;
+  variant?: "warning" | "success";
   title: string;
   message: string;
+  txDetails?: {
+    total: string;
+    cups: number;
+    method: PaymentMethod;
+    changeText?: string;
+    itemsText: string;
+  };
   actionLabel?: string;
   onAction?: () => void;
 };
@@ -119,7 +127,7 @@ export default function Home() {
   const [cart, setCart] = useState<Quantities>({});
   const [openBusy, setOpenBusy] = useState(false);
   const [openError, setOpenError] = useState("");
-  const [payment, setPayment] = useState<PaymentMethod>("TUNAI");
+  const [payment, setPayment] = useState<PaymentMethod | null>(null);
   const [cashReceived, setCashReceived] = useState<number | null>(null);
   const [qrisConfirmed, setQrisConfirmed] = useState(false);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -141,6 +149,10 @@ export default function Home() {
 
   const triggerPopup = useCallback((title: string, message: string, actionLabel?: string, onAction?: () => void) => {
     setPopup({ id: Date.now() + Math.floor(Math.random() * 1000), title, message, actionLabel, onAction });
+  }, []);
+
+  const triggerSuccessPopup = useCallback((title: string, message: string, txDetails: NonNullable<PopupState["txDetails"]>) => {
+    setPopup({ id: Date.now() + Math.floor(Math.random() * 1000), variant: "success", title, message, txDetails });
   }, []);
 
   const saveQueue = useCallback((value: QueueEntry[]) => {
@@ -739,7 +751,7 @@ export default function Home() {
     setPaymentModalVisible(false);
     setSidebarOpen(false);
     setCart({});
-    setPayment("TUNAI");
+    setPayment(null);
     setCashReceived(null);
     setQrisConfirmed(false);
     setLoginUsername("");
@@ -797,6 +809,9 @@ export default function Home() {
       triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
       return;
     }
+    setPayment(null);
+    setCashReceived(null);
+    setQrisConfirmed(false);
     setPaymentModalVisible(true);
   }
 
@@ -832,6 +847,10 @@ export default function Home() {
       triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
       return;
     }
+    if (!payment) {
+      triggerPopup("Pilih Metode Pembayaran", "Pilih metode pembayaran Tunai atau QRIS terlebih dahulu sebelum menyelesaikan transaksi.");
+      return;
+    }
     if (payment === "TUNAI" && cashReceived !== null && cashReceived < cartTotal) {
       triggerPopup("Nominal Tunai Kurang", `Uang diterima yang diinput (${rupiah(cashReceived)}) kurang dari total bayar (${rupiah(cartTotal)}). Kosongkan kolom jika pembeli membayar uang pas.`);
       return;
@@ -842,13 +861,18 @@ export default function Home() {
     }
     const id = crypto.randomUUID();
     const timestamp = new Date().toISOString();
+    const orderedMenus = menus.filter((menu) => (cart[menu.sku_code] || 0) > 0);
+    const itemsText = orderedMenus.map((menu) => `${cart[menu.sku_code]}× ${menu.menu_name}`).join(", ");
+    const changeText = payment === "TUNAI"
+      ? (cashReceived === null ? "Rp0 (Uang pas)" : rupiah(Math.max(0, cashReceived - cartTotal)))
+      : undefined;
     const payload: TransactionPayload = {
       trx_id: id,
       timestamp,
       branch_id: session.branchId,
       cashier_name: session.cashierName,
       shift_id: session.shiftId,
-      items: menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => ({ sku_code: menu.sku_code, qty: cart[menu.sku_code] })),
+      items: orderedMenus.map((menu) => ({ sku_code: menu.sku_code, qty: cart[menu.sku_code] })),
       total_amount: cartTotal,
       payment_method: payment,
     };
@@ -872,11 +896,26 @@ export default function Home() {
       setNotice("Penyimpanan perangkat penuh. Transaksi belum tersimpan; jangan serahkan pesanan.");
       return;
     }
+    const completedCups = cartCups;
+    const completedTotal = rupiah(cartTotal);
+    const completedMethod = payment;
     setCart({});
+    setPayment(null);
     setCashReceived(null);
     setQrisConfirmed(false);
     setPaymentModalVisible(false);
-    setNotice(`${rupiah(cartTotal)} · ${cartCups} cup (${payment}) tersimpan.`);
+    setNotice("");
+    triggerSuccessPopup(
+      "Transaksi Berhasil!",
+      `Pesanan ${completedCups} cup dengan metode ${completedMethod} berhasil disimpan.`,
+      {
+        total: completedTotal,
+        cups: completedCups,
+        method: completedMethod,
+        changeText,
+        itemsText,
+      },
+    );
     void flushQueue();
   }
 
@@ -1548,15 +1587,34 @@ export default function Home() {
               </div>
 
               <div className="payment-block">
-                <span className="field-label">Pilih metode pembayaran</span>
+                <span className="field-label">Pilih metode pembayaran <span className="required-mark" aria-hidden="true">*</span></span>
                 <div className="payment-options" role="group" aria-label="Metode pembayaran">
-                  <button type="button" className={payment === "TUNAI" ? "selected" : ""} onClick={() => setPayment("TUNAI")}>
+                  <button
+                    type="button"
+                    className={payment === "TUNAI" ? "selected" : ""}
+                    onClick={() => {
+                      setPayment("TUNAI");
+                      setQrisConfirmed(false);
+                    }}
+                  >
                     <Banknote size={18} /> Tunai
                   </button>
-                  <button type="button" className={payment === "QRIS" ? "selected" : ""} onClick={() => setPayment("QRIS")}>
+                  <button
+                    type="button"
+                    className={payment === "QRIS" ? "selected" : ""}
+                    onClick={() => {
+                      setPayment("QRIS");
+                      setCashReceived(null);
+                    }}
+                  >
                     <QrCode size={18} /> QRIS
                   </button>
                 </div>
+                {payment === null && (
+                  <p className="payment-prompt-note">
+                    Klik <strong>Tunai</strong> atau <strong>QRIS</strong> di atas terlebih dahulu untuk melanjutkan pembayaran.
+                  </p>
+                )}
               </div>
 
               {payment === "TUNAI" && (
@@ -1612,8 +1670,8 @@ export default function Home() {
               )}
 
               <div className="shift-modal-actions">
-                <button className="primary-button pay-button" type="button" onClick={handlePay}>
-                  <span>Bayar {rupiah(cartTotal)}</span>
+                <button className="primary-button pay-button" type="button" disabled={!payment} onClick={handlePay}>
+                  <span>{payment ? `Bayar ${rupiah(cartTotal)} (${payment})` : "Pilih Tunai / QRIS dahulu"}</span>
                   <ArrowRight size={21} />
                 </button>
                 <p className="checkout-help">Penjualan tunai & QRIS langsung dikalkulasikan ke rekonsiliasi tutup shift.</p>
@@ -2019,7 +2077,7 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation" onClick={() => setPopup(null)}>
           <div
             key={popup.id}
-            className="bounce-modal"
+            className={`bounce-modal ${popup.variant === "success" ? "bounce-modal-success" : ""}`}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="popup-title"
@@ -2027,21 +2085,58 @@ export default function Home() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
-              <span className="modal-badge" aria-hidden="true"><ShieldAlert size={24} /></span>
-              <button type="button" className="icon-button modal-close" aria-label="Tutup peringatan" onClick={() => setPopup(null)}>
+              <span className={`modal-badge ${popup.variant === "success" ? "modal-badge-success" : ""}`} aria-hidden="true">
+                {popup.variant === "success" ? <Check size={26} /> : <ShieldAlert size={24} />}
+              </span>
+              <button type="button" className="icon-button modal-close" aria-label="Tutup dialog" onClick={() => setPopup(null)}>
                 <X size={19} />
               </button>
             </div>
             <h2 id="popup-title">{popup.title}</h2>
             <p id="popup-desc">{popup.message}</p>
+            {popup.txDetails && (
+              <div className="tx-success-card">
+                <div className="tx-success-row">
+                  <span>Metode pembayaran</span>
+                  <strong className={`tx-method-pill ${popup.txDetails.method === "QRIS" ? "pill-qris" : "pill-tunai"}`}>
+                    {popup.txDetails.method}
+                  </strong>
+                </div>
+                <div className="tx-success-row">
+                  <span>Rincian ({popup.txDetails.cups} cup)</span>
+                  <strong>{popup.txDetails.itemsText}</strong>
+                </div>
+                <div className="tx-success-row tx-success-total">
+                  <span>Total bayar</span>
+                  <strong>{popup.txDetails.total}</strong>
+                </div>
+                {popup.txDetails.changeText && (
+                  <div className="tx-success-row">
+                    <span>Kembalian</span>
+                    <strong>{popup.txDetails.changeText}</strong>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="modal-actions">
               {popup.actionLabel && popup.onAction && (
                 <button type="button" className="primary-button" onClick={popup.onAction}>
                   <span>{popup.actionLabel}</span><ArrowRight size={19} />
                 </button>
               )}
-              <button type="button" className="secondary-modal-button" onClick={() => setPopup(null)}>
-                {popup.actionLabel ? "Nanti saja" : "Mengerti"}
+              <button
+                type="button"
+                className={popup.variant === "success" ? "primary-button tx-done-button" : "secondary-modal-button"}
+                onClick={() => setPopup(null)}
+              >
+                {popup.variant === "success" ? (
+                  <>
+                    <span>Selesai · Transaksi Baru</span>
+                    <Check size={19} />
+                  </>
+                ) : (
+                  popup.actionLabel ? "Nanti saja" : "Mengerti"
+                )}
               </button>
             </div>
           </div>
