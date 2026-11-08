@@ -109,10 +109,13 @@ function setupDatabase() {
 }
 
 /**
- * Jalankan fungsi ini dari editor Apps Script jika ingin mereset seluruh data transaksi & shift kembali ke 0
- * (data Master_Cabang, Master_Menu, dan Master_Kasir tetap dipertahankan).
+ * Fungsi reset diproteksi agar data transaksi & shift produksi tidak pernah terhapus
+ * jika tombol "Run" di editor Apps Script terpencet secara tidak sengaja.
  */
-function resetDatabase() {
+function resetDatabase(confirmToken) {
+  if (confirmToken !== 'CONFIRM_RESET_ALL_PRODUCTION_DATA') {
+    throw new Error('Proteksi Aktif: resetDatabase() dikunci agar data transaksi tidak terhapus. Data Anda tetap aman.');
+  }
   var ss = database_();
   ['Log_Transaksi', 'Rekap_Shift', 'Laporan_Admin', 'Laporan_Menu'].forEach(function(name) {
     var sh = ss.getSheetByName(name);
@@ -123,14 +126,6 @@ function resetDatabase() {
   setupDatabase();
   SpreadsheetApp.flush();
   return 'Seluruh data transaksi, shift, dan laporan berhasil di-reset ke 0.';
-}
-
-/**
- * Alias pembersih data testing sebelum mulai jualan hari ini:
- * Mengosongkan data transaksi, shift testing, dan laporan rekap tanpa mengutak-atik master data.
- */
-function cleanTestData() {
-  return resetDatabase();
 }
 
 function doGet(e) {
