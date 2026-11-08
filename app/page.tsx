@@ -21,8 +21,16 @@ const SESSION_KEY = "cps:session:v1";
 type TabKey = "pos" | "shift" | "account";
 type PopupState = {
   id: number;
+  variant?: "warning" | "success";
   title: string;
   message: string;
+  txDetails?: {
+    total: string;
+    cups: number;
+    method: PaymentMethod;
+    changeText?: string;
+    itemsText: string;
+  };
   actionLabel?: string;
   onAction?: () => void;
 };
@@ -119,7 +127,7 @@ export default function Home() {
   const [cart, setCart] = useState<Quantities>({});
   const [openBusy, setOpenBusy] = useState(false);
   const [openError, setOpenError] = useState("");
-  const [payment, setPayment] = useState<PaymentMethod>("TUNAI");
+  const [payment, setPayment] = useState<PaymentMethod | null>(null);
   const [cashReceived, setCashReceived] = useState<number | null>(null);
   const [qrisConfirmed, setQrisConfirmed] = useState(false);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -141,6 +149,10 @@ export default function Home() {
 
   const triggerPopup = useCallback((title: string, message: string, actionLabel?: string, onAction?: () => void) => {
     setPopup({ id: Date.now() + Math.floor(Math.random() * 1000), title, message, actionLabel, onAction });
+  }, []);
+
+  const triggerSuccessPopup = useCallback((title: string, message: string, txDetails: NonNullable<PopupState["txDetails"]>) => {
+    setPopup({ id: Date.now() + Math.floor(Math.random() * 1000), variant: "success", title, message, txDetails });
   }, []);
 
   const saveQueue = useCallback((value: QueueEntry[]) => {
@@ -219,6 +231,22 @@ export default function Home() {
         if (raw) {
           const saved = JSON.parse(raw) as Session;
           if (saved.cashierName && saved.token && saved.expiresAt > Date.now()) {
+            const today = jakartaDate();
+            // Mitigasi shift lintas hari: Shift kemarin tidak boleh aktif hari ini
+            if (saved.shiftId && saved.shiftDate && saved.shiftDate !== today) {
+              saved.shiftId = undefined;
+              saved.shiftDate = undefined;
+              saved.branchId = "";
+              saved.branchName = "";
+              saved.isShiftClosed = false;
+              window.localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+            } else if (saved.branchId && saved.shiftId) {
+              const isClosedLocally = saved.isShiftClosed || readLocal<boolean>(closedKey(saved.branchId, saved.shiftDate || today), false);
+              if (isClosedLocally) {
+                saved.isShiftClosed = true;
+                setClosed(true);
+              }
+            }
             sessionRef.current = saved;
             setSession(saved);
             if (saved.branchId) setOpenBranch(saved.branchId);
@@ -267,7 +295,8 @@ export default function Home() {
       const saved = readLocal<ShiftDraft & { cashCountMode?: string }>(draftKey(session.branchId, date), emptyShiftDraft());
       setDraft({ ...emptyShiftDraft(), ...saved,
         tunaiFisikLaci: saved.cashCountMode === "SALES_ONLY" ? null : saved.tunaiFisikLaci });
-      setClosed(readLocal<boolean>(closedKey(session.branchId, date), false));
+      const isShiftClosed = Boolean(session.isShiftClosed) || readLocal<boolean>(closedKey(session.branchId, date), false);
+      setClosed(isShiftClosed);
       setShiftError("");
     });
     return () => { cancelled = true; };
@@ -291,6 +320,7 @@ export default function Home() {
       if (state.found && state.closed) {
         setClosed(true);
         writeLocal(closedKey(session.branchId, session.shiftDate || jakartaDate()), true);
+        setSession((prev) => (prev && !prev.isShiftClosed ? { ...prev, isShiftClosed: true } : prev));
       } else if (state.found === false) {
         const targetDate = session.shiftDate || jakartaDate();
         window.localStorage.removeItem(draftKey(session.branchId, targetDate));
@@ -475,7 +505,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift pada sesi ini sudah ditutup. Silakan keluar sesi (Log Out) melalui menu Akun untuk mengakhiri sesi kasir.",
@@ -549,6 +579,9 @@ export default function Home() {
         token: String(result.session_token),
         expiresAt: Number(result.expires_at),
         loginAt: Date.now(),
+        shiftId: undefined,
+        shiftDate: undefined,
+        isShiftClosed: false,
       };
       setDraft(emptyShiftDraft());
       setClosed(false);
@@ -658,6 +691,7 @@ export default function Home() {
         branchName: chosenBranch.branch_name,
         shiftId,
         shiftDate: today,
+        isShiftClosed: false,
       };
       writeLocal(SESSION_KEY, next);
       sessionRef.current = next;
@@ -674,7 +708,7 @@ export default function Home() {
   }
 
   function requestLogout() {
-    if (session?.shiftId && !closed) {
+    if (session?.shiftId && !closed && !session?.isShiftClosed) {
       triggerPopup(
         "Shift Belum Ditutup",
         "Kasir tidak dapat keluar sesi (log out) selama shift masih berjalan. Selesaikan perhitungan fisik dan tekan Tutup Shift terlebih dahulu.",
@@ -717,7 +751,7 @@ export default function Home() {
     setPaymentModalVisible(false);
     setSidebarOpen(false);
     setCart({});
-    setPayment("TUNAI");
+    setPayment(null);
     setCashReceived(null);
     setQrisConfirmed(false);
     setLoginUsername("");
@@ -745,7 +779,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift ini sudah ditutup dan tidak dapat menerima transaksi baru. Silakan Log Out dari menu Akun.",
@@ -775,6 +809,9 @@ export default function Home() {
       triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
       return;
     }
+    setPayment(null);
+    setCashReceived(null);
+    setQrisConfirmed(false);
     setPaymentModalVisible(true);
   }
 
@@ -793,7 +830,7 @@ export default function Home() {
       );
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup(
         "Shift Sudah Ditutup",
         "Shift ini sudah ditutup dan tidak dapat menerima transaksi baru. Silakan Log Out dari menu Akun.",
@@ -810,6 +847,10 @@ export default function Home() {
       triggerPopup("Stok Cup Tidak Cukup", "Jumlah cup pesanan melebihi sisa Cup Bawa pada shift ini.");
       return;
     }
+    if (!payment) {
+      triggerPopup("Pilih Metode Pembayaran", "Pilih metode pembayaran Tunai atau QRIS terlebih dahulu sebelum menyelesaikan transaksi.");
+      return;
+    }
     if (payment === "TUNAI" && cashReceived !== null && cashReceived < cartTotal) {
       triggerPopup("Nominal Tunai Kurang", `Uang diterima yang diinput (${rupiah(cashReceived)}) kurang dari total bayar (${rupiah(cartTotal)}). Kosongkan kolom jika pembeli membayar uang pas.`);
       return;
@@ -820,13 +861,18 @@ export default function Home() {
     }
     const id = crypto.randomUUID();
     const timestamp = new Date().toISOString();
+    const orderedMenus = menus.filter((menu) => (cart[menu.sku_code] || 0) > 0);
+    const itemsText = orderedMenus.map((menu) => `${cart[menu.sku_code]}× ${menu.menu_name}`).join(", ");
+    const changeText = payment === "TUNAI"
+      ? (cashReceived === null ? "Rp0 (Uang pas)" : rupiah(Math.max(0, cashReceived - cartTotal)))
+      : undefined;
     const payload: TransactionPayload = {
       trx_id: id,
       timestamp,
       branch_id: session.branchId,
       cashier_name: session.cashierName,
       shift_id: session.shiftId,
-      items: menus.filter((menu) => (cart[menu.sku_code] || 0) > 0).map((menu) => ({ sku_code: menu.sku_code, qty: cart[menu.sku_code] })),
+      items: orderedMenus.map((menu) => ({ sku_code: menu.sku_code, qty: cart[menu.sku_code] })),
       total_amount: cartTotal,
       payment_method: payment,
     };
@@ -850,11 +896,26 @@ export default function Home() {
       setNotice("Penyimpanan perangkat penuh. Transaksi belum tersimpan; jangan serahkan pesanan.");
       return;
     }
+    const completedCups = cartCups;
+    const completedTotal = rupiah(cartTotal);
+    const completedMethod = payment;
     setCart({});
+    setPayment(null);
     setCashReceived(null);
     setQrisConfirmed(false);
     setPaymentModalVisible(false);
-    setNotice(`${rupiah(cartTotal)} · ${cartCups} cup (${payment}) tersimpan.`);
+    setNotice("");
+    triggerSuccessPopup(
+      "Transaksi Berhasil!",
+      `Pesanan ${completedCups} cup dengan metode ${completedMethod} berhasil disimpan.`,
+      {
+        total: completedTotal,
+        cups: completedCups,
+        method: completedMethod,
+        changeText,
+        itemsText,
+      },
+    );
     void flushQueue();
   }
 
@@ -872,7 +933,7 @@ export default function Home() {
       triggerPopup("Shift Belum Dibuka", "Buka shift terlebih dahulu sebelum melakukan penutupan shift.");
       return;
     }
-    if (closed) {
+    if (closed || session?.isShiftClosed) {
       triggerPopup("Shift Sudah Ditutup", "Shift ini sudah ditutup sebelumnya. Anda dapat keluar sesi dari menu Akun.", "Ke Menu Akun", () => { setCloseModalVisible(false); setTab("account"); setPopup(null); });
       return;
     }
@@ -924,6 +985,9 @@ export default function Home() {
     setShiftBusy(true);
     setShiftError("");
     try {
+      if (pendingToday > 0) {
+        await flushQueue();
+      }
       const server = await gasPost({
         action: "GET_SHIFT",
         session_token: session.token,
@@ -931,8 +995,11 @@ export default function Home() {
         shift_id: shiftId,
       });
       const totals = server.totals as { cups: number; cash: number; qris: number; revenue: number };
-      if (!server.found || Number(totals.cups) !== shiftCups || Number(totals.revenue) !== shiftRevenue) {
-        throw new Error("Total di Google Sheets berbeda dari perangkat ini. Periksa sinkronisasi sebelum tutup shift.");
+      if (!server.found) {
+        throw new Error("Shift tidak ditemukan di Google Sheets. Buka ulang modal atau hubungi admin.");
+      }
+      if (Number(totals.cups) !== shiftCups || Number(totals.revenue) !== shiftRevenue) {
+        throw new Error(`Data di Google Sheets (${totals.cups} cup, ${rupiah(totals.revenue)}) berbeda dari kasir (${shiftCups} cup, ${rupiah(shiftRevenue)}). Kirim ulang transaksi atau periksa koneksi sebelum tutup shift.`);
       }
       await gasPost({
         action: "CLOSE_SHIFT",
@@ -958,7 +1025,14 @@ export default function Home() {
       writeLocal(closedKey(session.branchId, date), true);
       setClosed(true);
       setCloseModalVisible(false);
-      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim. Silakan Log Out melalui menu Akun.`);
+      const closedSession: Session = {
+        ...session,
+        isShiftClosed: true,
+      };
+      sessionRef.current = closedSession;
+      writeLocal(SESSION_KEY, closedSession);
+      setSession(closedSession);
+      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim ke Google Sheets (Status: CLOSED). Silakan Log Out melalui menu Akun.`);
     } catch (error) {
       setShiftError(error instanceof Error ? error.message : "Tutup shift gagal. Coba ulang kembali.");
     } finally {
@@ -1031,9 +1105,12 @@ export default function Home() {
     ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" }).format(new Date(session.loginAt))
     : "Hari ini";
 
+  const isShiftClosed = closed || Boolean(session.isShiftClosed);
+  const isShiftActive = Boolean(session.shiftId) && !isShiftClosed;
+
   const shiftStatusLabel = !session.shiftId
     ? "Belum buka shift"
-    : closed
+    : isShiftClosed
       ? "Shift sudah ditutup"
       : "Shift sedang berjalan";
 
@@ -1101,8 +1178,8 @@ export default function Home() {
               >
                 <ClipboardCheck size={19} />
                 <span>Shift</span>
-                <span className={`sidebar-pill ${!session.shiftId ? "pill-warn" : closed ? "pill-muted" : "pill-ok"}`}>
-                  {!session.shiftId ? "Buka" : closed ? "Selesai" : "Aktif"}
+                <span className={`sidebar-pill ${!session.shiftId ? "pill-warn" : isShiftClosed ? "pill-muted" : "pill-ok"}`}>
+                  {!session.shiftId ? "Buka" : isShiftClosed ? "Selesai" : "Aktif"}
                 </span>
               </button>
 
@@ -1139,7 +1216,7 @@ export default function Home() {
 
           {tab === "pos" && (
             <div className="pos-stage-wrap">
-              <div className={`pos-layout ${!session.shiftId ? "is-blurred" : ""}`} aria-hidden={!session.shiftId ? true : undefined}>
+              <div className={`pos-layout ${!isShiftActive ? "is-blurred" : ""}`} aria-hidden={!isShiftActive ? true : undefined}>
                 <section className="menu-area" aria-labelledby="menu-title">
                   <div className="section-heading">
                     <div>
@@ -1230,26 +1307,41 @@ export default function Home() {
                 )}
               </div>
 
-              {!session.shiftId && (
+              {!isShiftActive && (
                 <div className="pos-blur-gate" role="region" aria-labelledby="pos-gate-heading">
                   <div className="pos-gate-card">
                     <span className="shift-stage-icon" aria-hidden="true">
                       <ClipboardCheck size={28} />
                     </span>
-                    <h2 id="pos-gate-heading">Shift belum dibuka</h2>
-                    <p>Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan.</p>
-                    <button
-                      type="button"
-                      className="primary-button shift-center-cta"
-                      onClick={() => {
-                        setOpenError("");
-                        void loadConfig();
-                        setOpenModalVisible(true);
-                      }}
-                    >
-                      <span>Buka Shift</span>
-                      <ArrowRight size={20} />
-                    </button>
+                    <h2 id="pos-gate-heading">{isShiftClosed ? "Shift sudah ditutup" : "Shift belum dibuka"}</h2>
+                    <p>
+                      {isShiftClosed
+                        ? "Laporan shift berhasil dikirim ke Google Sheets. Silakan Log Out melalui menu Akun setelah shift selesai."
+                        : "Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan."}
+                    </p>
+                    {isShiftClosed ? (
+                      <button
+                        type="button"
+                        className="primary-button shift-center-cta"
+                        onClick={() => setTab("account")}
+                      >
+                        <span>Ke Menu Akun (Log Out)</span>
+                        <ArrowRight size={20} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="primary-button shift-center-cta"
+                        onClick={() => {
+                          setOpenError("");
+                          void loadConfig();
+                          setOpenModalVisible(true);
+                        }}
+                      >
+                        <span>Buka Shift</span>
+                        <ArrowRight size={20} />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1284,7 +1376,7 @@ export default function Home() {
 
           {tab === "shift" && Boolean(session.shiftId) && (
             <div className="shift-active-stage">
-              {closed && (
+              {isShiftClosed && (
                 <div className="message success-message">
                   <Check size={18} />
                   <span>Shift ini sudah ditutup dan tercatat di Google Sheets. Anda kini dapat keluar sesi (Log Out) melalui menu Akun.</span>
@@ -1388,7 +1480,7 @@ export default function Home() {
                     <h2 id="account-profile-title">{session.cashierName}</h2>
                     <p>{branchDisplay}</p>
                   </div>
-                  <span className={`account-status-pill ${!session.shiftId ? "status-idle" : closed ? "status-closed" : "status-open"}`}>
+                  <span className={`account-status-pill ${!session.shiftId ? "status-idle" : isShiftClosed ? "status-closed" : "status-open"}`}>
                     {shiftStatusLabel}
                   </span>
                 </div>
@@ -1435,7 +1527,7 @@ export default function Home() {
                   <div>
                     <strong>Keluar dari aplikasi kasir</strong>
                     <p>
-                      {session.shiftId && !closed
+                      {isShiftActive
                         ? "Shift masih berjalan. Anda wajib menyelesaikan Tutup Shift terlebih dahulu sebelum dapat keluar dari akun."
                         : "Sesi siap diakhiri. Menekan tombol keluar akan menghapus sesi login dari perangkat ini."}
                     </p>
@@ -1495,15 +1587,34 @@ export default function Home() {
               </div>
 
               <div className="payment-block">
-                <span className="field-label">Pilih metode pembayaran</span>
+                <span className="field-label">Pilih metode pembayaran <span className="required-mark" aria-hidden="true">*</span></span>
                 <div className="payment-options" role="group" aria-label="Metode pembayaran">
-                  <button type="button" className={payment === "TUNAI" ? "selected" : ""} onClick={() => setPayment("TUNAI")}>
+                  <button
+                    type="button"
+                    className={payment === "TUNAI" ? "selected" : ""}
+                    onClick={() => {
+                      setPayment("TUNAI");
+                      setQrisConfirmed(false);
+                    }}
+                  >
                     <Banknote size={18} /> Tunai
                   </button>
-                  <button type="button" className={payment === "QRIS" ? "selected" : ""} onClick={() => setPayment("QRIS")}>
+                  <button
+                    type="button"
+                    className={payment === "QRIS" ? "selected" : ""}
+                    onClick={() => {
+                      setPayment("QRIS");
+                      setCashReceived(null);
+                    }}
+                  >
                     <QrCode size={18} /> QRIS
                   </button>
                 </div>
+                {payment === null && (
+                  <p className="payment-prompt-note">
+                    Klik <strong>Tunai</strong> atau <strong>QRIS</strong> di atas terlebih dahulu untuk melanjutkan pembayaran.
+                  </p>
+                )}
               </div>
 
               {payment === "TUNAI" && (
@@ -1559,8 +1670,8 @@ export default function Home() {
               )}
 
               <div className="shift-modal-actions">
-                <button className="primary-button pay-button" type="button" onClick={handlePay}>
-                  <span>Bayar {rupiah(cartTotal)}</span>
+                <button className="primary-button pay-button" type="button" disabled={!payment} onClick={handlePay}>
+                  <span>{payment ? `Bayar ${rupiah(cartTotal)} (${payment})` : "Pilih Tunai / QRIS dahulu"}</span>
                   <ArrowRight size={21} />
                 </button>
                 <p className="checkout-help">Penjualan tunai & QRIS langsung dikalkulasikan ke rekonsiliasi tutup shift.</p>
@@ -1966,7 +2077,7 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation" onClick={() => setPopup(null)}>
           <div
             key={popup.id}
-            className="bounce-modal"
+            className={`bounce-modal ${popup.variant === "success" ? "bounce-modal-success" : ""}`}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="popup-title"
@@ -1974,21 +2085,58 @@ export default function Home() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
-              <span className="modal-badge" aria-hidden="true"><ShieldAlert size={24} /></span>
-              <button type="button" className="icon-button modal-close" aria-label="Tutup peringatan" onClick={() => setPopup(null)}>
+              <span className={`modal-badge ${popup.variant === "success" ? "modal-badge-success" : ""}`} aria-hidden="true">
+                {popup.variant === "success" ? <Check size={26} /> : <ShieldAlert size={24} />}
+              </span>
+              <button type="button" className="icon-button modal-close" aria-label="Tutup dialog" onClick={() => setPopup(null)}>
                 <X size={19} />
               </button>
             </div>
             <h2 id="popup-title">{popup.title}</h2>
             <p id="popup-desc">{popup.message}</p>
+            {popup.txDetails && (
+              <div className="tx-success-card">
+                <div className="tx-success-row">
+                  <span>Metode pembayaran</span>
+                  <strong className={`tx-method-pill ${popup.txDetails.method === "QRIS" ? "pill-qris" : "pill-tunai"}`}>
+                    {popup.txDetails.method}
+                  </strong>
+                </div>
+                <div className="tx-success-row">
+                  <span>Rincian ({popup.txDetails.cups} cup)</span>
+                  <strong>{popup.txDetails.itemsText}</strong>
+                </div>
+                <div className="tx-success-row tx-success-total">
+                  <span>Total bayar</span>
+                  <strong>{popup.txDetails.total}</strong>
+                </div>
+                {popup.txDetails.changeText && (
+                  <div className="tx-success-row">
+                    <span>Kembalian</span>
+                    <strong>{popup.txDetails.changeText}</strong>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="modal-actions">
               {popup.actionLabel && popup.onAction && (
                 <button type="button" className="primary-button" onClick={popup.onAction}>
                   <span>{popup.actionLabel}</span><ArrowRight size={19} />
                 </button>
               )}
-              <button type="button" className="secondary-modal-button" onClick={() => setPopup(null)}>
-                {popup.actionLabel ? "Nanti saja" : "Mengerti"}
+              <button
+                type="button"
+                className={popup.variant === "success" ? "primary-button tx-done-button" : "secondary-modal-button"}
+                onClick={() => setPopup(null)}
+              >
+                {popup.variant === "success" ? (
+                  <>
+                    <span>Selesai · Transaksi Baru</span>
+                    <Check size={19} />
+                  </>
+                ) : (
+                  popup.actionLabel ? "Nanti saja" : "Mengerti"
+                )}
               </button>
             </div>
           </div>
