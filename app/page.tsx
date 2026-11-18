@@ -7,10 +7,10 @@ import {
   ShieldAlert, Trash2, UserCheck, Wallet, Wifi, WifiOff, X,
 } from "lucide-react";
 import {
-  Branch, OtherExpense, PaymentMethod, Quantities, QueueEntry, SaleRecord,
+  Branch, OtherExpense, PaymentMethod, Quantities, QueueEntry, SHIFT_MAX_AGE_MS, SaleRecord,
   Session, ShiftDraft, TransactionPayload, bonusTierInfo, calculateBonus, displayDate,
-  emptyShiftDraft, gasGetConfig, gasPost, jakartaDate, numberText, parseNonNegative,
-  readLocal, rupiah, writeLocal,
+  emptyShiftDraft, friendlyErrorMessage, gasGetConfig, gasPost, jakartaDate, numberText,
+  parseNonNegative, readLocal, rupiah, writeLocal,
 } from "@/lib/pos";
 
 const QUEUE_KEY = "cps:queue:v1";
@@ -169,6 +169,15 @@ export default function Home() {
 
   const loadConfig = useCallback(async () => {
     setConfigError("");
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const cached = readLocal<Branch[]>(CONFIG_KEY, []);
+      if (cached.length) {
+        setBranches(cached);
+        setConfigCached(true);
+        setOpenBranch((current) => current || cached[0].branch_id);
+      }
+      return;
+    }
     try {
       const live = await gasGetConfig();
       writeLocal(CONFIG_KEY, live);
@@ -176,7 +185,7 @@ export default function Home() {
       setConfigCached(false);
       setOpenBranch((current) => (live.some((b) => b.branch_id === current) ? current : live[0]?.branch_id || ""));
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : "Daftar cabang & menu gagal dimuat dari Sheets.";
+      const errMsg = friendlyErrorMessage(error, "Data menu dan cabang terbaru belum dapat dimuat.");
       setConfigError(errMsg);
       const cached = readLocal<Branch[]>(CONFIG_KEY, []);
       if (cached.length) {
@@ -208,7 +217,7 @@ export default function Home() {
         saveLedger(ledgerRef.current.map((sale) => sale.id === entry.payload.trx_id ? { ...sale, synced: true } : sale));
       }
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "Sinkronisasi tertunda.");
+      setSyncError(friendlyErrorMessage(error, "Pengiriman transaksi tertunda karena koneksi belum stabil."));
     } finally {
       syncingRef.current = false;
       setSyncing(false);
@@ -232,20 +241,26 @@ export default function Home() {
           const saved = JSON.parse(raw) as Session;
           if (saved.cashierName && saved.token && saved.expiresAt > Date.now()) {
             const today = jakartaDate();
-            // Mitigasi shift lintas hari: Shift kemarin tidak boleh aktif hari ini
-            if (saved.shiftId && saved.shiftDate && saved.shiftDate !== today) {
+            const isClosedLocally = Boolean(saved.isShiftClosed) || (
+              Boolean(saved.branchId) && readLocal<boolean>(closedKey(saved.branchId, saved.shiftDate || today), false)
+            );
+            const openedAt = saved.shiftOpenedAt || saved.loginAt || (
+              saved.shiftDate ? new Date(`${saved.shiftDate}T00:00:00+07:00`).getTime() : 0
+            );
+            const isShiftExpired = Boolean(saved.shiftId) && openedAt > 0 && (Date.now() - openedAt >= SHIFT_MAX_AGE_MS);
+            // Aturan shift 24 jam penuh sejak dibuka (tetap aktif melewati jam 00:00),
+            // hanya reset jika shift sudah ditutup di hari sebelumnya atau sudah melewati batas 24 jam.
+            if (saved.shiftId && ((isClosedLocally && saved.shiftDate && saved.shiftDate !== today) || isShiftExpired)) {
               saved.shiftId = undefined;
               saved.shiftDate = undefined;
+              saved.shiftOpenedAt = undefined;
               saved.branchId = "";
               saved.branchName = "";
               saved.isShiftClosed = false;
               window.localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
-            } else if (saved.branchId && saved.shiftId) {
-              const isClosedLocally = saved.isShiftClosed || readLocal<boolean>(closedKey(saved.branchId, saved.shiftDate || today), false);
-              if (isClosedLocally) {
-                saved.isShiftClosed = true;
-                setClosed(true);
-              }
+            } else if (saved.branchId && saved.shiftId && isClosedLocally) {
+              saved.isShiftClosed = true;
+              setClosed(true);
             }
             sessionRef.current = saved;
             setSession(saved);
@@ -306,6 +321,14 @@ export default function Home() {
     if (!session?.shiftId || !session.branchId || !navigator.onLine) return;
     void gasPost({ action: "GET_SHIFT", branch_id: session.branchId, shift_id: session.shiftId,
       session_token: session.token }).then((state) => {
+      const serverOpenedAt = typeof state.opened_at === "number" && state.opened_at > 0 ? state.opened_at : null;
+      const isServerShiftExpired = Boolean(serverOpenedAt && (Date.now() - serverOpenedAt >= SHIFT_MAX_AGE_MS));
+      if (state.found && serverOpenedAt && !session.shiftOpenedAt && !isServerShiftExpired) {
+        const syncedSession: Session = { ...session, shiftOpenedAt: serverOpenedAt };
+        writeLocal(SESSION_KEY, syncedSession);
+        sessionRef.current = syncedSession;
+        setSession(syncedSession);
+      }
       if (state.found && state.bumbu_bawa && typeof state.bumbu_bawa === "object") {
         const serverBumbu = state.bumbu_bawa as Record<string, number>;
         if (Object.keys(serverBumbu).length > 0) {
@@ -317,12 +340,10 @@ export default function Home() {
           });
         }
       }
-      if (state.found && state.closed) {
-        setClosed(true);
-        writeLocal(closedKey(session.branchId, session.shiftDate || jakartaDate()), true);
-        setSession((prev) => (prev && !prev.isShiftClosed ? { ...prev, isShiftClosed: true } : prev));
-      } else if (state.found === false) {
-        const targetDate = session.shiftDate || jakartaDate();
+      const today = jakartaDate();
+      const shouldResetClosedYesterday = Boolean(state.found && state.closed && session.shiftDate && session.shiftDate !== today);
+      if (state.found === false || isServerShiftExpired || shouldResetClosedYesterday) {
+        const targetDate = session.shiftDate || today;
         window.localStorage.removeItem(draftKey(session.branchId, targetDate));
         window.localStorage.removeItem(closedKey(session.branchId, targetDate));
         saveQueue(queueRef.current.filter((item) => item.payload.shift_id !== session.shiftId));
@@ -333,6 +354,8 @@ export default function Home() {
           branchName: "",
           shiftId: undefined,
           shiftDate: undefined,
+          shiftOpenedAt: undefined,
+          isShiftClosed: false,
         };
         writeLocal(SESSION_KEY, resetSession);
         sessionRef.current = resetSession;
@@ -341,6 +364,10 @@ export default function Home() {
         setClosed(false);
         setCart({});
         setTab("shift");
+      } else if (state.found && state.closed) {
+        setClosed(true);
+        writeLocal(closedKey(session.branchId, session.shiftDate || today), true);
+        setSession((prev) => (prev && !prev.isShiftClosed ? { ...prev, isShiftClosed: true } : prev));
       }
     }).catch(() => {});
   }, [session, saveLedger, saveQueue]);
@@ -544,6 +571,10 @@ export default function Home() {
       setLoginError("Masukkan username kasir terdaftar dan PIN 4–8 digit.");
       return;
     }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoginError("Tidak ada koneksi internet. Sambungkan Wi-Fi atau data seluler terlebih dahulu untuk masuk.");
+      return;
+    }
     setLoginBusy(true);
     setLoginError("");
     try {
@@ -552,7 +583,7 @@ export default function Home() {
         result = await gasPost({ action: "LOGIN", username: usernameInput, pin_code: loginPin });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
-        if (msg.includes("Aksi tidak dikenali") || msg.includes("branch_id tidak valid")) {
+        if (msg.includes("Action tidak dikenal") || msg.includes("Aksi tidak dikenali") || msg.includes("branch_id tidak valid")) {
           const fallbackBranch = branches[0]?.branch_id || "";
           if (!fallbackBranch) throw err;
           result = await gasPost({ action: "VALIDATE_PIN", branch_id: fallbackBranch, pin_code: loginPin });
@@ -565,7 +596,7 @@ export default function Home() {
         return;
       }
       if (!result.session_token || !result.expires_at) {
-        setLoginError("Apps Script masih versi lama. Perbarui Code.gs dan deployment Web App terlebih dahulu.");
+        setLoginError("Sistem kasir sedang dalam pembaruan atau belum siap. Silakan hubungi admin.");
         return;
       }
       window.sessionStorage.removeItem(SESSION_KEY);
@@ -581,6 +612,7 @@ export default function Home() {
         loginAt: Date.now(),
         shiftId: undefined,
         shiftDate: undefined,
+        shiftOpenedAt: undefined,
         isShiftClosed: false,
       };
       setDraft(emptyShiftDraft());
@@ -595,7 +627,7 @@ export default function Home() {
       setLoginPin("");
       void loadConfig();
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "Koneksi tidak tersedia. Coba lagi saat online.");
+      setLoginError(friendlyErrorMessage(error, "Koneksi tidak tersedia. Coba lagi saat internet kembali aktif."));
     } finally {
       setLoginBusy(false);
     }
@@ -605,7 +637,7 @@ export default function Home() {
     event.preventDefault();
     if (!session) return;
     if (!online) {
-      triggerPopup("Koneksi Diperlukan", "Pembukaan shift membutuhkan koneksi internet untuk mencatat cabang, Modal Awal, dan Cup Bawa ke Google Sheets.");
+      triggerPopup("Koneksi Internet Diperlukan", "Pembukaan shift membutuhkan koneksi internet agar data modal awal dan stok bawa tercatat ke sistem.");
       return;
     }
     const chosenBranch = branches.find((item) => item.branch_id === openBranch);
@@ -638,11 +670,13 @@ export default function Home() {
     });
     let shiftId = draft.shiftId || crypto.randomUUID();
     const today = jakartaDate();
+    let shiftDate = today;
+    let shiftOpenedAt = Date.now();
     setOpenBusy(true);
     setOpenError("");
     try {
       try {
-        await gasPost({
+        const openedRes = await gasPost({
           action: "OPEN_SHIFT",
           session_token: session.token,
           shift: {
@@ -655,6 +689,12 @@ export default function Home() {
             modal_awal: draft.modalAwal,
           },
         });
+        if (typeof openedRes.opened_at === "number" && openedRes.opened_at > 0) {
+          shiftOpenedAt = openedRes.opened_at;
+        }
+        if (typeof openedRes.date === "string" && openedRes.date) {
+          shiftDate = openedRes.date;
+        }
       } catch (innerError) {
         const msg = innerError instanceof Error ? innerError.message : "";
         if (msg.includes("sudah memiliki shift")) {
@@ -666,6 +706,12 @@ export default function Home() {
           });
           if (existing.found && !existing.closed && existing.shift_id) {
             shiftId = String(existing.shift_id);
+            if (typeof existing.opened_at === "number" && existing.opened_at > 0) {
+              shiftOpenedAt = existing.opened_at;
+            }
+            if (typeof existing.date === "string" && existing.date) {
+              shiftDate = existing.date;
+            }
           } else {
             throw innerError;
           }
@@ -680,8 +726,8 @@ export default function Home() {
         bumbuBawa: cleanBumbuBawa,
         shiftId,
       };
-      writeLocal(draftKey(chosenBranch.branch_id, today), nextDraft);
-      writeLocal(closedKey(chosenBranch.branch_id, today), false);
+      writeLocal(draftKey(chosenBranch.branch_id, shiftDate), nextDraft);
+      writeLocal(closedKey(chosenBranch.branch_id, shiftDate), false);
       setDraft(nextDraft);
       setClosed(false);
       setCloseConfirmed(false);
@@ -690,7 +736,8 @@ export default function Home() {
         branchId: chosenBranch.branch_id,
         branchName: chosenBranch.branch_name,
         shiftId,
-        shiftDate: today,
+        shiftDate,
+        shiftOpenedAt,
         isShiftClosed: false,
       };
       writeLocal(SESSION_KEY, next);
@@ -701,7 +748,7 @@ export default function Home() {
       setNotice(`Shift ${chosenBranch.branch_name} dibuka dengan modal ${rupiah(draft.modalAwal)} dan ${effectiveCupBawa} cup.`);
       void flushQueue();
     } catch (error) {
-      setOpenError(error instanceof Error ? error.message : "Buka shift gagal.");
+      setOpenError(friendlyErrorMessage(error, "Shift gagal dibuka. Periksa koneksi internet Anda lalu coba lagi."));
     } finally {
       setOpenBusy(false);
     }
@@ -711,7 +758,7 @@ export default function Home() {
     if (session?.shiftId && !closed && !session?.isShiftClosed) {
       triggerPopup(
         "Shift Belum Ditutup",
-        "Kasir tidak dapat keluar sesi (log out) selama shift masih berjalan. Selesaikan perhitungan fisik dan tekan Tutup Shift terlebih dahulu.",
+        "Kasir belum bisa keluar sebelum shift ditutup. Selesaikan perhitungan fisik dan tekan Tutup Shift terlebih dahulu.",
         "Ke Menu Shift",
         () => {
           setTab("shift");
@@ -723,8 +770,8 @@ export default function Home() {
     }
     if (pendingCurrentBranch > 0) {
       triggerPopup(
-        "Transaksi Belum Tersinkron",
-        `Masih ada ${pendingCurrentBranch} transaksi yang menunggu sinkronisasi ke Google Sheets. Pastikan perangkat online lalu kirim ulang sebelum keluar.`,
+        "Transaksi Belum Terkirim",
+        `Masih ada ${pendingCurrentBranch} transaksi yang belum terkirim. Pastikan internet aktif lalu tekan Kirim Ulang sebelum keluar.`,
       );
       return;
     }
@@ -938,11 +985,11 @@ export default function Home() {
       return;
     }
     if (!online) {
-      triggerPopup("Koneksi Diperlukan", "Tutup shift membutuhkan koneksi internet agar laporan langsung masuk ke Google Sheets.");
+      triggerPopup("Koneksi Internet Diperlukan", "Tutup shift membutuhkan koneksi internet agar laporan dapat langsung diterima sistem pusat.");
       return;
     }
     if (pendingToday > 0) {
-      triggerPopup("Antrean Belum Tersinkron", `Masih ada ${pendingToday} transaksi yang belum terkirim ke Google Sheets. Tekan Kirim Ulang terlebih dahulu.`);
+      triggerPopup("Transaksi Belum Terkirim", `Masih ada ${pendingToday} transaksi yang belum terkirim. Tekan Kirim Ulang terlebih dahulu sebelum menutup shift.`);
       return;
     }
     if (!allBumbuSisaFilled) {
@@ -996,10 +1043,10 @@ export default function Home() {
       });
       const totals = server.totals as { cups: number; cash: number; qris: number; revenue: number };
       if (!server.found) {
-        throw new Error("Shift tidak ditemukan di Google Sheets. Buka ulang modal atau hubungi admin.");
+        throw new Error("Data shift tidak ditemukan di sistem. Coba tutup lalu buka ulang aplikasi, atau hubungi admin.");
       }
       if (Number(totals.cups) !== shiftCups || Number(totals.revenue) !== shiftRevenue) {
-        throw new Error(`Data di Google Sheets (${totals.cups} cup, ${rupiah(totals.revenue)}) berbeda dari kasir (${shiftCups} cup, ${rupiah(shiftRevenue)}). Kirim ulang transaksi atau periksa koneksi sebelum tutup shift.`);
+        throw new Error(`Jumlah transaksi di pusat (${totals.cups} cup, ${rupiah(totals.revenue)}) berbeda dengan di HP kasir (${shiftCups} cup, ${rupiah(shiftRevenue)}). Tekan Kirim Ulang dan pastikan internet lancar sebelum tutup shift.`);
       }
       await gasPost({
         action: "CLOSE_SHIFT",
@@ -1032,9 +1079,9 @@ export default function Home() {
       sessionRef.current = closedSession;
       writeLocal(SESSION_KEY, closedSession);
       setSession(closedSession);
-      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim ke Google Sheets (Status: CLOSED). Silakan Log Out melalui menu Akun.`);
+      setNotice(`Laporan tutup shift ${session.branchName} berhasil dikirim dan ditutup. Silakan tekan Keluar (Log-Out) melalui menu Akun.`);
     } catch (error) {
-      setShiftError(error instanceof Error ? error.message : "Tutup shift gagal. Coba ulang kembali.");
+      setShiftError(friendlyErrorMessage(error, "Laporan tutup shift gagal dikirim. Periksa internet Anda lalu coba lagi."));
     } finally {
       setShiftBusy(false);
     }
@@ -1081,8 +1128,9 @@ export default function Home() {
                 disabled={loginBusy}
               />
             </label>
-            {configCached && <p className="inline-note"><CloudOff size={16} /> Konfigurasi cabang tersimpan di perangkat. Login tetap memerlukan koneksi.</p>}
-            {configError && <div className="message error-message"><CircleAlert size={18} /><span>{configError}</span><button type="button" onClick={() => void loadConfig()}>Coba lagi</button></div>}
+            {!online && <p className="inline-note"><WifiOff size={16} /> Sedang offline. Sambungkan Wi-Fi atau paket data untuk masuk.</p>}
+            {online && configCached && <p className="inline-note"><CloudOff size={16} /> Data cabang tersimpan di HP. Login tetap membutuhkan koneksi internet.</p>}
+            {online && configError && <div className="message error-message"><CircleAlert size={18} /><span>{configError}</span><button type="button" onClick={() => void loadConfig()}>Coba lagi</button></div>}
             {loginError && <div className="message error-message" role="alert"><CircleAlert size={18} /><span>{loginError}</span></div>}
             <button className="primary-button login-submit" type="submit" disabled={loginBusy}>
               <span>{loginBusy ? "Memverifikasi akun…" : "Masuk ke aplikasi"}</span><ArrowRight size={19} />
@@ -1204,15 +1252,15 @@ export default function Home() {
             </div>
             <div className="desktop-status">
               <span>{session.shiftId ? `${shiftCups} cup terjual pada shift ini` : "Shift belum dibuka"}</span>
-              <button type="button" onClick={() => void loadConfig()} disabled={!online}><RefreshCw size={15} /> Muat ulang Sheets</button>
+              <button type="button" onClick={() => void loadConfig()} disabled={!online}><RefreshCw size={15} /> Muat ulang data</button>
               {pendingCurrentBranch > 0 && <button type="button" onClick={() => void flushQueue()} disabled={!online || syncing}><RefreshCw size={16} /> Kirim ulang</button>}
             </div>
           </div>
 
           {notice && <div className="message success-message" role="status"><Check size={18} /><span>{notice}</span><button type="button" aria-label="Tutup pesan" onClick={() => setNotice("")}><X size={17} /></button></div>}
-          {configError && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>Gagal memuat pembaruan Google Sheets ({configError}). Pastikan Code.gs terbaru sudah di-Deploy sebagai <strong>New version</strong> di Apps Script.</span><button type="button" onClick={() => void loadConfig()}>Muat ulang</button></div>}
-          {syncError && pendingCurrentBranch > 0 && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>{syncError}. {pendingCurrentBranch} transaksi tetap tersimpan di perangkat.</span><button type="button" onClick={() => void flushQueue()} disabled={!online || syncing}>Kirim ulang</button></div>}
-          {!online && <div className="message offline-message" role="status"><WifiOff size={18} /><span>Offline. Pesanan baru akan disimpan di perangkat lalu dikirim saat koneksi pulih.</span></div>}
+          {online && configError && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>{configError} Daftar menu yang tersimpan di HP masih dapat digunakan.</span><button type="button" onClick={() => void loadConfig()}>Muat ulang</button></div>}
+          {online && syncError && pendingCurrentBranch > 0 && <div className="message warning-message" role="alert"><CircleAlert size={18} /><span>{syncError} {pendingCurrentBranch} transaksi tersimpan aman di HP dan siap dikirim ulang.</span><button type="button" onClick={() => void flushQueue()} disabled={!online || syncing}>Kirim ulang</button></div>}
+          {!online && <div className="message offline-message" role="status"><WifiOff size={18} /><span>Sedang offline. Transaksi tetap berjalan normal dan disimpan di HP, lalu otomatis dikirim saat internet kembali aktif.</span></div>}
 
           {tab === "pos" && (
             <div className="pos-stage-wrap">
@@ -1253,7 +1301,7 @@ export default function Home() {
                           </div>
                         </article>
                       );
-                    }) : <div className="empty-state">Menu belum tersedia. Pastikan konfigurasi cabang aktif di Google Sheets.</div>}
+                    }) : <div className="empty-state">Menu belum tersedia. Pastikan internet aktif lalu tekan Muat ulang data, atau hubungi admin.</div>}
                   </div>
                   <div className="day-strip">
                     <div className="day-strip-metrics">
@@ -1316,7 +1364,7 @@ export default function Home() {
                     <h2 id="pos-gate-heading">{isShiftClosed ? "Shift sudah ditutup" : "Shift belum dibuka"}</h2>
                     <p>
                       {isShiftClosed
-                        ? "Laporan shift berhasil dikirim ke Google Sheets. Silakan Log Out melalui menu Akun setelah shift selesai."
+                        ? "Laporan tutup shift sudah berhasil dikirim. Silakan tekan Keluar (Log-Out) melalui menu Akun."
                         : "Pilih cabang, isi Modal Awal Kas, dan Cup Bawa terlebih dahulu sebelum mencatat transaksi pesanan."}
                     </p>
                     {isShiftClosed ? (
@@ -1325,7 +1373,7 @@ export default function Home() {
                         className="primary-button shift-center-cta"
                         onClick={() => setTab("account")}
                       >
-                        <span>Ke Menu Akun (Log Out)</span>
+                        <span>Ke Menu Akun</span>
                         <ArrowRight size={20} />
                       </button>
                     ) : (
@@ -1533,7 +1581,7 @@ export default function Home() {
                     </p>
                   </div>
                   <button className="primary-button account-logout-btn" type="button" onClick={requestLogout}>
-                    <span>Keluar Sesi Kasir (Log Out)</span>
+                    <span>Keluar (Log-Out)</span>
                     <LogOut size={19} />
                   </button>
                 </div>
