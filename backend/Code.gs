@@ -194,7 +194,7 @@ function login_(p) {
       return {ok:true, valid:false};
     }
     cache.remove(rateKey);
-    var userExpiresAt = Date.now() + 16 * 60 * 60 * 1000;
+    var userExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
     var userData = Utilities.base64EncodeWebSafe(JSON.stringify({username:account.username, cashier_name:account.name, exp:userExpiresAt}));
     var userSig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(userData, sessionSecret_()));
     return {ok:true, valid:true, username:account.username, cashier_name:account.name, session_token:userData + '.' + userSig, expires_at:userExpiresAt};
@@ -210,7 +210,7 @@ function login_(p) {
     return {ok:true, valid:false};
   }
   cache.remove(key);
-  var expiresAt = Date.now() + 16 * 60 * 60 * 1000;
+  var expiresAt = Date.now() + 24 * 60 * 60 * 1000;
   var data = Utilities.base64EncodeWebSafe(JSON.stringify({branch_id:id, exp:expiresAt}));
   var secret = sessionSecret_();
   var signature = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(data, secret));
@@ -309,7 +309,8 @@ function openShift_(p) {
     if (dateStr_(existing[0]) !== date || String(existing[1]) !== branchId || Number(existing[3]) !== bawa || Number(existing[9]) !== modal) {
       throw new Error('Data pembukaan shift berbeda dari yang tersimpan.');
     }
-    return {ok:true, shift_id:id, opened:true, closed:String(existing[22]) === 'CLOSED', bumbu_bawa:parseJsonMap_(existing[24])};
+    var existingOpenedAt = (existing[23] && typeof existing[23].getTime === 'function') ? existing[23].getTime() : Date.now();
+    return {ok:true, shift_id:id, date:dateStr_(existing[0]), opened:true, closed:String(existing[22]) === 'CLOSED', opened_at:existingOpenedAt, bumbu_bawa:parseJsonMap_(existing[24])};
   }
   if (shifts.getLastRow() > 1) {
     var openRows = shifts.getRange(2,1,shifts.getLastRow()-1,24).getValues();
@@ -321,17 +322,18 @@ function openShift_(p) {
     SpreadsheetApp.flush();
   }
   var nextRow = shifts.getLastRow() + 1;
+  var openedAt = new Date();
   shifts.getRange(nextRow, 2).setNumberFormat('@');
   shifts.getRange(nextRow, 1, 1, 29).setValues([[
     id, date, branchId, safeText_(s.cashier_name,'cashier_name',80),
     bawa, '', '', '', '', '',
     modal, 0, 0, 0, 0, 0, 0, 0, '', 0, '',
-    branch.wage, branch.rent, 'OPEN', new Date(),
+    branch.wage, branch.rent, 'OPEN', openedAt,
     bumbuKeys.length ? JSON.stringify(bumbuBawa) : '', '',
     0, branch.wage
   ]]);
   setShiftFormulas_(shifts, nextRow);
-  return {ok:true, shift_id:id, opened:true, closed:false, bumbu_bawa:bumbuBawa};
+  return {ok:true, shift_id:id, date:date, opened:true, closed:false, opened_at:openedAt.getTime(), bumbu_bawa:bumbuBawa};
 }
 
 function shiftTotals_(id) {
@@ -381,11 +383,14 @@ function getShift_(p) {
   var wage = Number(data[21]) || 0;
   var bonus = calculateBonus_(totals.cups);
   var isClosed = String(data[23] || '').trim().toUpperCase() === 'CLOSED';
+  var openedAtMs = (data[24] && typeof data[24].getTime === 'function') ? data[24].getTime() : null;
   return {
     ok:true,
     found:true,
     shift_id:String(data[0]),
+    date:dateStr_(data[1]),
     closed:isClosed,
+    opened_at:openedAtMs,
     cup_bawa:Number(data[4]),
     modal_awal:Number(data[10]),
     daily_wage:wage,

@@ -22,8 +22,11 @@ export type Session = {
   loginAt?: number;
   shiftId?: string;
   shiftDate?: string;
+  shiftOpenedAt?: number;
   isShiftClosed?: boolean;
 };
+
+export const SHIFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type PaymentMethod = "TUNAI" | "QRIS";
 export type Quantities = Record<string, number>;
@@ -193,13 +196,33 @@ export function bonusTierInfo(cups: number): {
   };
 }
 
-export async function gasGetConfig(): Promise<Branch[]> {
-  const response = await fetch("/api/gas", { cache: "no-store" });
-  const data = await response.json();
-  if (!response.ok || !data.ok || !Array.isArray(data.branches)) {
-    throw new Error(data.error || "Konfigurasi cabang belum bisa dimuat.");
+export function friendlyErrorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const msg = raw.trim();
+  if (!msg) return fallback;
+  if (/failed to fetch|fetch failed|load failed|networkerror|network error|internet|offline|econnrefused|enotfound/i.test(msg)) {
+    return "Koneksi internet terganggu. Pastikan Wi-Fi atau data seluler aktif lalu coba lagi.";
   }
-  return data.branches as Branch[];
+  if (/abort|timeout|timed out/i.test(msg)) {
+    return "Koneksi ke server sedang lambat. Silakan coba beberapa saat lagi.";
+  }
+  if (/unexpected token|syntaxerror|json|next_public_gas_url|http \d+|respons gas|code\.gs|apps script|web app/i.test(msg)) {
+    return "Sistem kasir sedang mengalami gangguan sambungan sementara. Coba sebentar lagi atau hubungi admin.";
+  }
+  return msg;
+}
+
+export async function gasGetConfig(): Promise<Branch[]> {
+  try {
+    const response = await fetch("/api/gas", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || !data.ok || !Array.isArray(data.branches)) {
+      throw new Error(data.error || "Data cabang dan menu belum dapat dimuat.");
+    }
+    return data.branches as Branch[];
+  } catch (error) {
+    throw new Error(friendlyErrorMessage(error, "Data cabang dan menu belum dapat dimuat."));
+  }
 }
 
 export async function gasPost(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -214,8 +237,10 @@ export async function gasPost(payload: Record<string, unknown>): Promise<Record<
       cache: "no-store",
     });
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || "Gagal terhubung ke Google Sheets.");
+    if (!response.ok || !data.ok) throw new Error(data.error || "Gagal terhubung ke server kasir.");
     return data as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(friendlyErrorMessage(error, "Gagal terhubung ke server kasir. Periksa koneksi internet Anda."));
   } finally {
     window.clearTimeout(timer);
   }

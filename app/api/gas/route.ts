@@ -24,22 +24,27 @@ async function forward(method: "GET" | "POST", body?: string) {
       redirect: "follow",
       signal: AbortSignal.timeout(28000),
     });
-    if (!response.ok) throw new Error(`Web App GAS merespons HTTP ${response.status}.`);
+    if (!response.ok) throw new Error(`Server sedang sibuk (kode ${response.status}). Silakan coba lagi.`);
     const raw = await response.text();
     let data: unknown;
     try {
       data = JSON.parse(raw);
     } catch {
-      throw new Error("Respons GAS bukan JSON. Periksa akses deployment Web App.");
+      throw new Error("Sambungan ke server kasir sedang bermasalah. Silakan coba sebentar lagi.");
     }
-    if (!data || typeof data !== "object") throw new Error("Format respons GAS tidak valid.");
+    if (!data || typeof data !== "object") throw new Error("Format respons server tidak sesuai.");
     return NextResponse.json(data, {
       status: (data as { ok?: boolean }).ok === false ? 422 : 200,
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Koneksi ke GAS gagal.";
-    return NextResponse.json({ ok: false, error: message }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    const rawMsg = error instanceof Error ? error.message : "";
+    const friendly = /timeout|abort/i.test(rawMsg)
+      ? "Koneksi ke server terlalu lama. Periksa internet Anda lalu coba lagi."
+      : /fetch failed|failed to fetch|network|econnrefused|enotfound/i.test(rawMsg)
+        ? "Tidak dapat terhubung ke server. Periksa koneksi internet Anda."
+        : rawMsg || "Koneksi ke server kasir gagal.";
+    return NextResponse.json({ ok: false, error: friendly }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }
 
